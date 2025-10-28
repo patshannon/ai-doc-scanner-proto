@@ -44,6 +44,9 @@ export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
     <View style={styles.center}>
       <ActivityIndicator />
       <Text style={styles.status}>{status}…</Text>
+      <TouchableOpacity style={styles.cancelBtn} onPress={onBack}>
+        <Text style={styles.cancelText}>Cancel</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -53,6 +56,8 @@ const styles = StyleSheet.create({
   status: { color: '#333' },
   err: { color: '#b00020' },
   btn: { backgroundColor: '#111', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
-  btnText: { color: '#fff' }
+  btnText: { color: '#fff' },
+  cancelBtn: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
+  cancelText: { color: '#666' }
 });
 

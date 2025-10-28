@@ -40,6 +40,7 @@ class AnalyzeResponse(BaseModel):
 
 class EnsureFolderPathRequest(BaseModel):
     folderPath: str = Field(..., min_length=1, max_length=256)
+    googleAccessToken: Optional[str] = Field(default=None, max_length=2048)
 
     class Config:
         extra = "forbid"
@@ -48,6 +49,40 @@ class EnsureFolderPathRequest(BaseModel):
 class EnsureFolderPathResponse(BaseModel):
     folderPath: str
     status: str = "stub"
+
+    class Config:
+        extra = "forbid"
+
+
+class OcrRequest(BaseModel):
+    image: str = Field(..., min_length=1, max_length=10000000)
+
+    class Config:
+        extra = "forbid"
+
+
+class OcrResponse(BaseModel):
+    text: str
+
+    class Config:
+        extra = "forbid"
+
+
+class UploadRequest(BaseModel):
+    image: str = Field(..., min_length=1, max_length=10000000)
+    filename: str = Field(..., min_length=1, max_length=256)
+    folderPath: Optional[str] = Field(default=None, max_length=512)
+    mimeType: str = Field(default="image/jpeg", max_length=64)
+    googleAccessToken: Optional[str] = Field(default=None, max_length=2048)
+
+    class Config:
+        extra = "forbid"
+
+
+class UploadResponse(BaseModel):
+    fileId: str
+    webViewLink: str
+    folderId: Optional[str] = None
 
     class Config:
         extra = "forbid"

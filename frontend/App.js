@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import HomeScreen from './src/screens/Home.jsx';
 import CameraScreen from './src/screens/Camera.jsx';
 import ProcessingScreen from './src/screens/Processing.jsx';
 import ConfirmScreen from './src/screens/Confirm.jsx';
@@ -12,7 +13,7 @@ import GoogleTestScreen from './src/screens/GoogleTest.jsx';
 import { auth } from './src/services/firebase.js';
 
 export default function App() {
-  const [screen, setScreen] = useState('Camera');
+  const [screen, setScreen] = useState('Home');
   const [capture, setCapture] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [upload, setUpload] = useState(null);
@@ -45,7 +46,7 @@ export default function App() {
 
   useEffect(() => {
     if (!user) {
-      setScreen('Camera');
+      setScreen('Home');
       setCapture(null);
       setAnalysis(null);
       setUpload(null);
@@ -96,6 +97,13 @@ export default function App() {
             </TouchableOpacity>
           ) : null}
         </View>
+        {screen === 'Home' && (
+          <HomeScreen
+            onStartCamera={() => go('Camera')}
+            onTestGoogle={() => go('GoogleTest')}
+            googleAuth={googleAuth}
+          />
+        )}
         {screen === 'Camera' && (
           <CameraScreen
             onCaptured={(cap) => {
@@ -104,6 +112,7 @@ export default function App() {
             }}
             onTestGoogle={() => go('GoogleTest')}
             googleAuth={googleAuth}
+            onBack={() => go('Home')}
           />
         )}
         {screen === 'Processing' && (
@@ -130,6 +139,7 @@ export default function App() {
           <UploadScreen
             capture={capture}
             analysis={analysis}
+            googleAuth={googleAuth}
             onUploaded={(res) => {
               setUpload(res);
               go('Done');
@@ -144,7 +154,7 @@ export default function App() {
               setCapture(null);
               setAnalysis(null);
               setUpload(null);
-              go('Camera');
+              go('Home');
             }}
           />
         )}
@@ -152,7 +162,7 @@ export default function App() {
           <GoogleTestScreen
             initial={googleAuth}
             onResult={(info) => setGoogleAuth(info)}
-            onBack={() => go('Camera')}
+            onBack={() => go('Home')}
           />
         )}
       </SafeAreaView>

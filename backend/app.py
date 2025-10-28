@@ -7,12 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import auth
 import classify
+import drive
+import ocr as ocr_module
 from models import (
     AnalyzeRequest,
     AnalyzeResponse,
     EnsureFolderPathRequest,
     EnsureFolderPathResponse,
     Fields,
+    OcrRequest,
+    OcrResponse,
+    UploadRequest,
+    UploadResponse,
 )
 
 app = FastAPI(title="Document Analyzer API", version="0.1.0")
@@ -65,6 +71,26 @@ def require_user(
 @app.get("/healthz")
 def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/ocr", response_model=OcrResponse)
+def ocr_endpoint(request: OcrRequest) -> OcrResponse:
+    """
+    Perform OCR on an uploaded image.
+    No authentication required for OCR endpoint in prototype.
+    """
+    try:
+        text = ocr_module.perform_ocr(request.image)
+        return OcrResponse(text=text)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"OCR processing failed: {exc}",
+        ) from exc
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
@@ -120,7 +146,58 @@ def ensure_folder_path(
     request: EnsureFolderPathRequest,
     _: Dict[str, Any] = Depends(require_user),
 ) -> EnsureFolderPathResponse:
-    return EnsureFolderPathResponse(folderPath=request.folderPath, status="stub")
+    try:
+        folder_id = drive.ensure_folder_path(
+            request.folderPath,
+            access_token=request.googleAccessToken
+        )
+        return EnsureFolderPathResponse(folderPath=request.folderPath, status="ok")
+    except drive.DriveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+
+@app.post("/upload", response_model=UploadResponse)
+def upload_to_drive(
+    request: UploadRequest,
+    _: Dict[str, Any] = Depends(require_user),
+) -> UploadResponse:
+    """
+    Upload a file to Google Drive.
+    Optionally specify a folder path to organize the file.
+    Uses user's Google OAuth token if provided, otherwise falls back to service account.
+    """
+    try:
+        folder_id = None
+        if request.folderPath:
+            folder_id = drive.ensure_folder_path(
+                request.folderPath,
+                access_token=request.googleAccessToken
+            )
+
+        file_id, web_view_link = drive.upload_file(
+            request.image,
+            request.filename,
+            folder_id,
+            request.mimeType,
+            access_token=request.googleAccessToken
+        )
+
+        return UploadResponse(
+            fileId=file_id,
+            webViewLink=web_view_link,
+            folderId=folder_id
+        )
+    except drive.DriveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Upload failed: {exc}",
+        ) from exc
 
 
 if __name__ == "__main__":

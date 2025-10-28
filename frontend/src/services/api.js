@@ -51,17 +51,23 @@ async function getIdTokenSafe() {
   }
 }
 
-export async function ensureFolderPath(folderPath) {
+export async function ensureFolderPath(folderPath, googleAccessToken = null) {
   if (!API_BASE || USE_MOCKS) {
     return Promise.resolve({ folderPath, status: 'stub' });
   }
   const idToken = await getIdTokenSafe();
   const headers = { 'Content-Type': 'application/json' };
   if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
+  const body = { folderPath };
+  if (googleAccessToken) {
+    body.googleAccessToken = googleAccessToken;
+  }
+
   const res = await fetch(`${API_BASE}/ensureFolderPath`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ folderPath })
+    body: JSON.stringify(body)
   });
   if (!res.ok) {
     const text = await res.text();

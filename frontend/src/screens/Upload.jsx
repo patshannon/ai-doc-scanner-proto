@@ -4,7 +4,7 @@ import { generatePdfFromImage } from '../services/drive.js';
 import { uploadToDriveAndIndex } from '../services/drive.js';
 import { ensureFolderPath } from '../services/api.js';
 
-export default function UploadScreen({ capture, analysis, onUploaded, onBack }) {
+export default function UploadScreen({ capture, analysis, googleAuth, onUploaded, onBack }) {
   const [status, setStatus] = useState('Preparing PDF');
   const [error, setError] = useState(null);
   const [ensuredPath, setEnsuredPath] = useState(analysis?.folderPath || '');
@@ -16,7 +16,10 @@ export default function UploadScreen({ capture, analysis, onUploaded, onBack }) 
         setStatus('Ensuring folder path');
         let resolved = analysis;
         try {
-          const ensured = await ensureFolderPath(analysis?.folderPath || 'Documents/Other');
+          const ensured = await ensureFolderPath(
+            analysis?.folderPath || 'Documents/Other',
+            googleAuth?.accessToken
+          );
           if (ensured?.folderPath && ensured.folderPath !== analysis?.folderPath) {
             resolved = { ...analysis, folderPath: ensured.folderPath };
           }
@@ -32,7 +35,7 @@ export default function UploadScreen({ capture, analysis, onUploaded, onBack }) 
         setStatus('Generating PDF');
         const pdf = await generatePdfFromImage(capture?.uri, resolved?.title || 'Document');
         setStatus('Uploading to Drive');
-        const res = await uploadToDriveAndIndex(pdf, resolved);
+        const res = await uploadToDriveAndIndex(pdf, resolved, googleAuth?.accessToken);
         if (mounted) onUploaded(res);
       } catch (e) {
         setError(e?.message || 'Upload failed');
