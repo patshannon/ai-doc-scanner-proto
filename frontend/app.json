@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Doc AI Proto",
+    "slug": "doc-ai-proto",
+    "owner": "patrickshannon",
+    "scheme": [
+      "docai",
+      "com.googleusercontent.apps.935524565569-6majtpkip3kn9qjk740lnj1sjai9lcd3"
+    ],
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": null,
+    "splash": {},
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.patrickshannon.docaiproto"
+    },
+    "android": {
+      "package": "com.patrickshannon.docaiproto"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {}
+  }
+}
