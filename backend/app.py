@@ -6,19 +6,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 import auth
-import classify
 import drive
-import ocr as ocr_module
+import pdf_processor
 from models import (
-    AnalyzeRequest,
-    AnalyzeResponse,
-    EnsureFolderPathRequest,
-    EnsureFolderPathResponse,
-    Fields,
-    OcrRequest,
-    OcrResponse,
-    UploadRequest,
-    UploadResponse,
+    ProcessDocumentRequest,
+    ProcessDocumentResponse,
 )
 
 app = FastAPI(title="Document Analyzer API", version="0.1.0")
@@ -70,133 +62,91 @@ def require_user(
 
 @app.get("/healthz")
 def healthcheck() -> Dict[str, str]:
+    """Health check endpoint."""
     return {"status": "ok"}
 
 
-@app.post("/ocr", response_model=OcrResponse)
-def ocr_endpoint(request: OcrRequest) -> OcrResponse:
+@app.post("/process-document", response_model=ProcessDocumentResponse)
+def process_document(
+    request: ProcessDocumentRequest,
+    _: Dict[str, Any] = Depends(require_user),
+) -> ProcessDocumentResponse:
     """
-    Perform OCR on an uploaded image.
-    No authentication required for OCR endpoint in prototype.
+    Process a PDF document:
+    1. Extract text from PDF
+    2. Use Gemini 2.5 Flash to generate title and category
+    3. Upload to Google Drive in appropriate folder
+
+    This is the new simplified workflow for document processing.
     """
     try:
-        text = ocr_module.perform_ocr(request.image)
-        return OcrResponse(text=text)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OCR processing failed: {exc}",
-        ) from exc
+        # Decode PDF from base64 data URI
+        import base64
 
-
-@app.post("/analyze", response_model=AnalyzeResponse)
-def analyze(
-    request: AnalyzeRequest,
-    _: Dict[str, Any] = Depends(require_user),
-) -> AnalyzeResponse:
-    doc_type, base_confidence, _ = classify.classify_document(request.ocrText)
-
-    vendor = classify.extract_vendor(request.ocrText)
-    invoice_number = classify.extract_invoice_number(request.ocrText)
-    total, currency = classify.extract_total_and_currency(request.ocrText)
-    person_or_org = classify.extract_person_or_org(request.ocrText)
-    extracted_date = classify.extract_date(request.ocrText)
-    document_date = classify.resolve_date(extracted_date, request.exifDate)
-
-    title = classify.make_title(document_date, doc_type, vendor, invoice_number)
-    tags = classify.build_tags(doc_type, vendor)
-    folder_path = classify.build_folder_path(doc_type, document_date)
-    confidence = classify.estimate_confidence(
-        base_confidence,
-        {
-            "vendor": vendor,
-            "invoiceNumber": invoice_number,
-            "total": total,
-            "date": document_date,
-            "personOrOrg": person_or_org,
-        },
-    )
-
-    fields = Fields(
-        invoiceNumber=invoice_number,
-        vendor=vendor,
-        total=total,
-        currency=currency,
-        personOrOrg=person_or_org,
-        date=document_date,
-    )
-
-    return AnalyzeResponse(
-        docType=doc_type,
-        title=title,
-        date=document_date,
-        tags=tags,
-        fields=fields,
-        folderPath=folder_path,
-        confidence=confidence,
-    )
-
-
-@app.post("/ensureFolderPath", response_model=EnsureFolderPathResponse)
-def ensure_folder_path(
-    request: EnsureFolderPathRequest,
-    _: Dict[str, Any] = Depends(require_user),
-) -> EnsureFolderPathResponse:
-    try:
-        folder_id = drive.ensure_folder_path(
-            request.folderPath,
-            access_token=request.googleAccessToken
-        )
-        return EnsureFolderPathResponse(folderPath=request.folderPath, status="ok")
-    except drive.DriveError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        ) from exc
-
-
-@app.post("/upload", response_model=UploadResponse)
-def upload_to_drive(
-    request: UploadRequest,
-    _: Dict[str, Any] = Depends(require_user),
-) -> UploadResponse:
-    """
-    Upload a file to Google Drive.
-    Optionally specify a folder path to organize the file.
-    Uses user's Google OAuth token if provided, otherwise falls back to service account.
-    """
-    try:
-        folder_id = None
-        if request.folderPath:
-            folder_id = drive.ensure_folder_path(
-                request.folderPath,
-                access_token=request.googleAccessToken
+        if not request.pdfData.startswith("data:"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid data URI format"
             )
 
-        file_id, web_view_link = drive.upload_file(
-            request.image,
-            request.filename,
-            folder_id,
-            request.mimeType,
+        parts = request.pdfData.split(",", 1)
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid data URI: missing base64 data"
+            )
+
+        pdf_bytes = base64.b64decode(parts[1])
+
+        # Process PDF: extract text and generate title/category
+        extracted_text, title, category = pdf_processor.process_pdf_document(pdf_bytes)
+
+        # Create folder path based on category
+        from datetime import datetime
+        current_year = datetime.now().year
+        folder_path = f"Documents/{category}/{current_year}"
+
+        # Ensure folder exists
+        folder_id = drive.ensure_folder_path(
+            folder_path,
             access_token=request.googleAccessToken
         )
 
-        return UploadResponse(
+        # Generate filename with title (sanitized)
+        import re
+        safe_title = re.sub(r'[^\w\s-]', '', title).strip()
+        safe_title = re.sub(r'[-\s]+', '_', safe_title)
+        filename = f"{safe_title}.pdf"
+
+        # Upload PDF to Google Drive
+        file_id, web_view_link = drive.upload_file(
+            request.pdfData,
+            filename,
+            folder_id,
+            mime_type="application/pdf",
+            access_token=request.googleAccessToken
+        )
+
+        return ProcessDocumentResponse(
+            title=title,
+            category=category,
             fileId=file_id,
             webViewLink=web_view_link,
-            folderId=folder_id
+            folderId=folder_id,
+            extractedText=extracted_text[:500]  # Return first 500 chars for reference
         )
+
+    except HTTPException:
+        raise
     except drive.DriveError as exc:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Google Drive error: {exc}"
         ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Upload failed: {exc}",
+            detail=f"Document processing failed: {exc}",
         ) from exc
 
 
