@@ -9,6 +9,7 @@ import auth
 import classify
 import drive
 import ocr as ocr_module
+import pdf_processor
 from models import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -17,6 +18,8 @@ from models import (
     Fields,
     OcrRequest,
     OcrResponse,
+    ProcessDocumentRequest,
+    ProcessDocumentResponse,
     UploadRequest,
     UploadResponse,
 )
@@ -197,6 +200,90 @@ def upload_to_drive(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Upload failed: {exc}",
+        ) from exc
+
+
+@app.post("/process-document", response_model=ProcessDocumentResponse)
+def process_document(
+    request: ProcessDocumentRequest,
+    _: Dict[str, Any] = Depends(require_user),
+) -> ProcessDocumentResponse:
+    """
+    Process a PDF document:
+    1. Extract text from PDF
+    2. Use Gemini 2.5 Flash to generate title and category
+    3. Upload to Google Drive in appropriate folder
+
+    This is the new simplified workflow for document processing.
+    """
+    try:
+        # Decode PDF from base64 data URI
+        import base64
+
+        if not request.pdfData.startswith("data:"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid data URI format"
+            )
+
+        parts = request.pdfData.split(",", 1)
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid data URI: missing base64 data"
+            )
+
+        pdf_bytes = base64.b64decode(parts[1])
+
+        # Process PDF: extract text and generate title/category
+        extracted_text, title, category = pdf_processor.process_pdf_document(pdf_bytes)
+
+        # Create folder path based on category
+        from datetime import datetime
+        current_year = datetime.now().year
+        folder_path = f"Documents/{category}/{current_year}"
+
+        # Ensure folder exists
+        folder_id = drive.ensure_folder_path(
+            folder_path,
+            access_token=request.googleAccessToken
+        )
+
+        # Generate filename with title (sanitized)
+        import re
+        safe_title = re.sub(r'[^\w\s-]', '', title).strip()
+        safe_title = re.sub(r'[-\s]+', '_', safe_title)
+        filename = f"{safe_title}.pdf"
+
+        # Upload PDF to Google Drive
+        file_id, web_view_link = drive.upload_file(
+            request.pdfData,
+            filename,
+            folder_id,
+            mime_type="application/pdf",
+            access_token=request.googleAccessToken
+        )
+
+        return ProcessDocumentResponse(
+            title=title,
+            category=category,
+            fileId=file_id,
+            webViewLink=web_view_link,
+            folderId=folder_id,
+            extractedText=extracted_text[:500]  # Return first 500 chars for reference
+        )
+
+    except HTTPException:
+        raise
+    except drive.DriveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Google Drive error: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Document processing failed: {exc}",
         ) from exc
 
 

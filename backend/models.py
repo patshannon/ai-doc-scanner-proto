@@ -86,3 +86,23 @@ class UploadResponse(BaseModel):
 
     class Config:
         extra = "forbid"
+
+
+class ProcessDocumentRequest(BaseModel):
+    pdfData: str = Field(..., min_length=1, max_length=50000000)  # Base64 encoded PDF
+    googleAccessToken: Optional[str] = Field(default=None, max_length=2048)
+
+    class Config:
+        extra = "forbid"
+
+
+class ProcessDocumentResponse(BaseModel):
+    title: str
+    category: str
+    fileId: str
+    webViewLink: str
+    folderId: Optional[str] = None
+    extractedText: str
+
+    class Config:
+        extra = "forbid"
