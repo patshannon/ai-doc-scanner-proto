@@ -22,12 +22,8 @@ export default function UploadScreen({ capture, analysis, googleAuth, onUploaded
         
         if (mounted) {
           onUploaded({
-            fileId: res.fileId,
-            webViewLink: res.webViewLink,
-            name: res.title,
             title: res.title,
-            category: res.category,
-            folderId: res.folderId
+            category: res.category
           });
         }
       } catch (e) {

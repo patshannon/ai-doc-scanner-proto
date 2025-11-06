@@ -18,10 +18,6 @@ class ProcessDocumentResponse(BaseModel):
     """Response model for PDF document processing."""
     title: str
     category: str
-    fileId: str
-    webViewLink: str
-    folderId: Optional[str] = None
-    extractedText: str
 
     class Config:
         extra = "forbid"
