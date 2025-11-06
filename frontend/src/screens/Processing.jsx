@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { generatePdfFromImage } from '../services/drive.js';
+import { generatePdfFromImage, convertPdfToDataUri } from '../services/drive.js';
+import { processDocument } from '../services/api.js';
 
 export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
   const [status, setStatus] = useState('Generating PDF');
@@ -12,8 +13,18 @@ export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
       try {
         setStatus('Generating PDF');
         const pdf = await generatePdfFromImage(capture?.uri, 'document');
+        
+        setStatus('Converting to data URI');
+        const pdfDataUri = await convertPdfToDataUri(pdf.uri);
+
+        setStatus('Processing with backend');
+        const res = await processDocument(pdfDataUri, null);
+        
         if (mounted) {
-          onAnalyzed({ pdf });
+          onAnalyzed({
+            title: res.title,
+            category: res.category
+          });
         }
       } catch (e) {
         setError(e?.message || 'Processing failed');

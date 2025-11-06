@@ -7,7 +7,6 @@ import CameraScreen from './src/screens/Camera.jsx';
 import ProcessingScreen from './src/screens/Processing.jsx';
 import ConfirmScreen from './src/screens/Confirm.jsx';
 import UploadScreen from './src/screens/Upload.jsx';
-import DoneScreen from './src/screens/Done.jsx';
 import AuthScreen from './src/screens/Auth.jsx';
 import GoogleTestScreen from './src/screens/GoogleTest.jsx';
 import { auth } from './src/services/firebase.js';
@@ -16,7 +15,6 @@ export default function App() {
   const [screen, setScreen] = useState('Home');
   const [capture, setCapture] = useState(null);
   const [analysis, setAnalysis] = useState(null);
-  const [upload, setUpload] = useState(null);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [googleAuth, setGoogleAuth] = useState(null);
@@ -49,7 +47,6 @@ export default function App() {
       setScreen('Home');
       setCapture(null);
       setAnalysis(null);
-      setUpload(null);
       setGoogleAuth(null);
     }
   }, [user]);
@@ -137,25 +134,13 @@ export default function App() {
         )}
         {screen === 'Upload' && (
           <UploadScreen
-            capture={capture}
             analysis={analysis}
-            googleAuth={googleAuth}
-            onUploaded={(res) => {
-              setUpload(res);
-              go('Done');
-            }}
-            onBack={() => go('Confirm')}
-          />
-        )}
-        {screen === 'Done' && (
-          <DoneScreen
-            result={upload}
             onDone={() => {
               setCapture(null);
               setAnalysis(null);
-              setUpload(null);
               go('Home');
             }}
+            onBack={() => go('Confirm')}
           />
         )}
         {screen === 'GoogleTest' && (
