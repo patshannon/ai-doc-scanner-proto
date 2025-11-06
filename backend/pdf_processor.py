@@ -10,8 +10,11 @@ import os
 from typing import Tuple, Optional
 import logging
 
+from dotenv import load_dotenv
 import google.generativeai as genai
 from PyPDF2 import PdfReader
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

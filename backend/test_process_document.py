@@ -76,7 +76,10 @@ def test_process_document():
     print(f"URL: {url}")
 
     try:
-        response = requests.post(url, json=payload, timeout=60)
+        headers = {
+            "Authorization": "Bearer test-token"
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=120)
 
         print(f"\nResponse status code: {response.status_code}")
 
@@ -96,7 +99,7 @@ def test_process_document():
     except requests.exceptions.ConnectionError:
         print("\n❌ Connection failed!")
         print("Make sure the backend server is running on http://localhost:8000")
-        print("Run: cd /home/user/ai-doc-scanner-proto/backend && python app.py")
+        print("Run: cd backend && source .venv/bin/activate && uvicorn app:app --reload")
     except Exception as e:
         print(f"\n❌ Exception occurred: {e}")
 

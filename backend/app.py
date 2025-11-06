@@ -2,8 +2,11 @@
 
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv()
 
 import auth
 import drive
