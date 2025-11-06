@@ -68,17 +68,17 @@ CATEGORY: [category name in lowercase]"""
         if hasattr(response, 'usage_metadata'):
             um = response.usage_metadata
             print(f"[DEBUG] Raw usage_metadata object: {um}")
-            print(f"[DEBUG] usage_metadata type: {type(um)}")
-            print(f"[DEBUG] usage_metadata dir: {dir(um)}")
             
-            # Try different possible field names
-            input_tokens = getattr(um, 'prompt_token_count', 0) or getattr(um, 'input_token_count', 0)
-            output_tokens = getattr(um, 'candidates_token_count', 0) or getattr(um, 'output_token_count', 0) or getattr(um, 'total_token_count', 0) - input_tokens
+            # Access fields directly
+            input_tokens = um.prompt_token_count
+            output_tokens = um.candidates_token_count
             
             print(f"[DEBUG] Extracted input_tokens: {input_tokens}, output_tokens: {output_tokens}")
-            logger.info(f"Raw usage_metadata: {um}")
+            logger.info(f"Token usage - Input: {input_tokens}, Output: {output_tokens}")
         else:
             print("[DEBUG] No usage_metadata found on response!")
+            input_tokens = 0
+            output_tokens = 0
         
         # Calculate cost (Gemini 2.5 Flash pricing as of Nov 2024)
         # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
