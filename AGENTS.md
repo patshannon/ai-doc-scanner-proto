@@ -1,15 +1,16 @@
 # Repository Guidelines
 
 ## Project Status (2025-11-06)
-**Phase:** Backend Processing Rebuilt with Gemini AI Integration
+**Phase:** Image-to-PDF Conversion Architecture Implemented
 - ✅ PDF text extraction with PyPDF2
 - ✅ Gemini 2.0 Flash model for AI-powered title & category generation
 - ✅ Google Drive integration for document upload and folder organization
 - ✅ Firebase authentication with ID token verification
+- ✅ **Image-to-PDF conversion** via `img2pdf` library (client-side in frontend)
 - 🔄 Frontend integration in progress; manual testing of `/process-document` endpoint needed
 
 ## Project Structure & Module Organization
-- `frontend/` — Client app (React Native/Expo, JavaScript). Captures images/PDFs and sends to backend.
+- `frontend/` — Client app (React Native/Expo, JavaScript). Captures images/PDFs and converts to PDF before sending to backend.
 - `backend/` — Python FastAPI server with Gemini AI, PDF processing, and Google Drive integration.
   - `app.py` — Main FastAPI application with `/process-document` endpoint.
   - `pdf_processor.py` — PDF text extraction and Gemini-based title/category generation.
@@ -69,12 +70,41 @@
 - `PyPDF2` — PDF text extraction
 - `google-cloud-firestore`, `google-auth` — Cloud services
 
+## System Architecture Decision: Image-to-PDF Conversion
+
+### Decision (2025-11-06)
+**All documents (images and PDFs) are converted to PDF format before backend processing.**
+
+### Rationale
+1. **Unified Processing Pipeline:** Backend only handles PDFs → simpler codebase, easier maintenance
+2. **Better Text Extraction:** PyPDF2 extracts text from native PDFs reliably without OCR
+3. **Storage Consistency:** All documents stored in Drive as PDFs → predictable viewer experience
+4. **Future-Proof:** Easy to add OCR layer later if needed (e.g., for scanned images embedded in PDFs)
+
+### Implementation Strategy
+- **Frontend (Client-Side Conversion):**
+  - Use `react-native-pdf` or native JS libraries (e.g., `img2pdf` equivalent) to convert captured images to PDF
+  - Embed image in single-page PDF with original resolution
+  - Base64-encode PDF and send to backend via `/process-document`
+- **Backend (PDF-Only Processing):**
+  - Accepts only `data:application/pdf;base64,...` format
+  - PyPDF2 extracts text (works for native PDFs; blank for image-only PDFs without OCR layer)
+  - Gemini AI generates title/category from extracted text (or minimal text if image-based)
+  - Upload PDF to Google Drive with categorized folder structure
+
+### Trade-offs
+- **Pros:** Simple backend, consistent storage, no image format handling complexity
+- **Cons:** Image-PDFs without OCR layer yield minimal text (Gemini must infer from filename or fail gracefully)
+- **Future Enhancement:** Add OCR preprocessing (e.g., Tesseract or Vision API) for image-based PDFs if text extraction fails
+
 ### Next Steps / Known Gaps
+- [ ] Frontend: implement image-to-PDF conversion (research `expo-image-manipulator` + PDF creation libs)
 - [ ] Frontend: implement PDF capture/encoding and API integration
 - [ ] Test Gemini category accuracy and title generation with diverse document types
+- [ ] Test with image-based PDFs (no embedded text) to verify Gemini behavior
 - [ ] Verify Drive folder structure and permissions in production
 - [ ] Add request logging & monitoring for API health
-- [ ] Consider adding document preview/thumbnail generation
+- [ ] Consider adding OCR fallback for image-based PDFs with poor text extraction
 
 ## Agent-Specific Instructions
 - Read `docs/specs.md` before changes and align with `docs/backend-spec.md` and `docs/frontend-spec.md`.
