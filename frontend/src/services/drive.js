@@ -63,16 +63,9 @@ export async function generatePdfFromImage(uri, title) {
 
 export async function convertPdfToDataUri(pdfUri) {
   try {
-    const fetch_ = require('react-native/Libraries/Network/fetch').default;
-    const response = await fetch_(pdfUri);
-    const blob = await response.blob();
-    const reader = new FileReader();
-    
-    return new Promise((resolve, reject) => {
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+    const { readAsStringAsync } = await import('expo-file-system');
+    const base64 = await readAsStringAsync(pdfUri, { encoding: 'base64' });
+    return `data:application/pdf;base64,${base64}`;
   } catch (error) {
     throw new Error(`Failed to convert PDF to data URI: ${error.message}`);
   }
