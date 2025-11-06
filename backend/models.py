@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field
 
 
 class ProcessDocumentRequest(BaseModel):
-    """Request model for PDF document processing."""
-    pdfData: str = Field(..., min_length=1, max_length=50000000)  # Base64 encoded PDF
+    """Request model for document processing."""
+    imageData: str = Field(..., min_length=1, max_length=50000000)  # Base64 encoded image
     googleAccessToken: Optional[str] = Field(default=None, max_length=2048)
 
     class Config:

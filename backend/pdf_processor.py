@@ -124,6 +124,75 @@ Document text:
         raise Exception(f"Failed to generate title and category: {str(e)}")
 
 
+def process_image_with_gemini(image_bytes: bytes) -> Tuple[str, str]:
+    """
+    Use Gemini Vision to analyze a document image and generate title and category.
+
+    Args:
+        image_bytes: Image file content as bytes
+
+    Returns:
+        A tuple of (title, category)
+
+    Raises:
+        Exception: If Gemini API call fails
+    """
+    if not GEMINI_API_KEY:
+        raise Exception("GEMINI_API_KEY environment variable is not set")
+
+    try:
+        import PIL.Image
+        import io
+
+        # Load image
+        image = PIL.Image.open(io.BytesIO(image_bytes))
+        
+        # Use Gemini 2.5 Flash model with vision
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+        prompt = """Analyze this document image and provide:
+1. A concise, descriptive title (max 80 characters) that captures the main purpose of the document
+2. A category from this list: invoices, receipts, contracts, insurance, tax, medical, school, id, personal, business, legal, financial, other
+
+Format your response as:
+TITLE: [your title here]
+CATEGORY: [category name in lowercase]"""
+
+        response = model.generate_content([prompt, image])
+
+        # Parse the response
+        response_text = response.text.strip()
+        logger.info(f"Gemini Vision response: {response_text}")
+
+        title = None
+        category = None
+
+        for line in response_text.split('\n'):
+            line = line.strip()
+            if line.startswith('TITLE:'):
+                title = line.replace('TITLE:', '').strip()
+            elif line.startswith('CATEGORY:'):
+                category = line.replace('CATEGORY:', '').strip().lower()
+
+        # Fallback if parsing fails
+        if not title:
+            title = "Untitled Document"
+        if not category:
+            category = "other"
+
+        # Ensure title is not too long
+        if len(title) > 80:
+            title = title[:77] + "..."
+
+        logger.info(f"Generated title: '{title}', category: '{category}'")
+
+        return title, category
+
+    except Exception as e:
+        logger.error(f"Gemini Vision API call failed: {str(e)}")
+        raise Exception(f"Failed to analyze image: {str(e)}")
+
+
 def process_pdf_document(pdf_bytes: bytes) -> Tuple[str, str, str]:
     """
     Process a PDF document: extract text and generate title and category.

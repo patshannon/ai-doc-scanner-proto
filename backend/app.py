@@ -75,32 +75,32 @@ def process_document(
     _: Dict[str, Any] = Depends(require_user),
 ) -> ProcessDocumentResponse:
     """
-    Process a PDF document:
-    1. Extract text from PDF
-    2. Use Gemini 2.5 Flash to generate title and category
+    Process a document image:
+    1. Use Gemini Vision to analyze the image
+    2. Generate title and category
     
     Returns title and category only (simplified for testing).
     """
     try:
         import base64
 
-        if not request.pdfData.startswith("data:"):
+        if not request.imageData.startswith("data:image/"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid data URI format"
+                detail="Invalid data URI format - expected image"
             )
 
-        parts = request.pdfData.split(",", 1)
+        parts = request.imageData.split(",", 1)
         if len(parts) != 2:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid data URI: missing base64 data"
             )
 
-        pdf_bytes = base64.b64decode(parts[1])
+        image_bytes = base64.b64decode(parts[1])
 
-        # Process PDF: extract text and generate title/category
-        extracted_text, title, category = pdf_processor.process_pdf_document(pdf_bytes)
+        # Process image with Gemini Vision
+        title, category = pdf_processor.process_image_with_gemini(image_bytes)
 
         return ProcessDocumentResponse(
             title=title,

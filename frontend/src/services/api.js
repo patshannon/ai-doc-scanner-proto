@@ -15,16 +15,12 @@ async function getIdTokenSafe() {
   }
 }
 
-export async function processDocument(pdfDataUri, googleAccessToken) {
+export async function processDocument(imageDataUri, googleAccessToken) {
   if (!API_BASE || USE_MOCKS) {
     // Mock response when no backend configured yet.
     return Promise.resolve({
       title: '2025-10-26_Invoice_Acorn-Design_#8123',
-      category: 'invoices',
-      fileId: 'mock-file-id',
-      webViewLink: 'https://drive.google.com/file/d/mock-file-id',
-      folderId: 'mock-folder-id',
-      extractedText: 'Mock invoice text...'
+      category: 'invoices'
     });
   }
 
@@ -36,7 +32,7 @@ export async function processDocument(pdfDataUri, googleAccessToken) {
     headers.Authorization = `Bearer ${idToken}`;
   }
 
-  const body = { pdfData: pdfDataUri };
+  const body = { imageData: imageDataUri };
   if (googleAccessToken) {
     body.googleAccessToken = googleAccessToken;
   }
