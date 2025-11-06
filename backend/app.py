@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 import auth
-import drive
 import pdf_processor
 from models import (
     ProcessDocumentRequest,
