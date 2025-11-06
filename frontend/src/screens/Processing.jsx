@@ -1,31 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { generatePdfFromImage, convertPdfToDataUri } from '../services/drive.js';
 import { processDocument } from '../services/api.js';
 
 export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
-  const [status, setStatus] = useState('Processing image');
+  const [status, setStatus] = useState('Generating PDF');
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let mounted = true;
     const work = async () => {
       try {
-        setStatus('Converting image to base64');
-        const manipulated = await manipulateAsync(
-          capture?.uri,
-          [{ resize: { width: 2048 } }],
-          { compress: 0.8, format: SaveFormat.JPEG, base64: true }
-        );
+        setStatus('Generating PDF from image');
+        const pdf = await generatePdfFromImage(capture?.uri, 'document');
+        
+        setStatus('Converting PDF to data URI');
+        const pdfDataUri = await convertPdfToDataUri(pdf.uri);
 
-        if (!manipulated?.base64) {
-          throw new Error('Failed to convert image');
-        }
-
-        const imageDataUri = `data:image/jpeg;base64,${manipulated.base64}`;
-
-        setStatus('Analyzing with AI');
-        const res = await processDocument(imageDataUri, null);
+        setStatus('Analyzing PDF with AI');
+        const res = await processDocument(pdfDataUri, null);
         
         console.log('[Processing] Backend response:', res);
         

@@ -2,12 +2,12 @@
 Document Processing Module with Gemini Vision API
 
 This module uses Google's Gemini 2.5 Flash with Vision capabilities
-to analyze document images and generate titles and categories.
+to analyze PDF documents and generate titles and categories.
 """
 
 import io
 import os
-from typing import Tuple, Dict
+from typing import Dict
 import logging
 
 from dotenv import load_dotenv
@@ -23,12 +23,12 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 
-def process_image_with_gemini(image_bytes: bytes) -> Dict[str, any]:
+def process_pdf_with_gemini(pdf_bytes: bytes) -> Dict[str, any]:
     """
-    Use Gemini Vision to analyze a document image and generate title and category.
+    Use Gemini Vision to analyze a PDF document and generate title and category.
 
     Args:
-        image_bytes: Image file content as bytes
+        pdf_bytes: PDF file content as bytes
 
     Returns:
         A dict with title, category, input_tokens, output_tokens, estimated_cost
@@ -40,15 +40,10 @@ def process_image_with_gemini(image_bytes: bytes) -> Dict[str, any]:
         raise Exception("GEMINI_API_KEY environment variable is not set")
 
     try:
-        import PIL.Image
-
-        # Load image
-        image = PIL.Image.open(io.BytesIO(image_bytes))
-        
-        # Use Gemini 2.5 Flash model with vision
+        # Use Gemini 2.5 Flash model with vision (supports PDF)
         model = genai.GenerativeModel('gemini-2.5-flash')
 
-        prompt = """Analyze this document image and provide:
+        prompt = """Analyze this PDF document and provide:
 1. A concise, descriptive title (max 80 characters) that captures the main purpose of the document
 2. A category from this list: invoices, receipts, contracts, insurance, tax, medical, school, id, personal, business, legal, financial, other
 
@@ -56,10 +51,12 @@ Format your response as:
 TITLE: [your title here]
 CATEGORY: [category name in lowercase]"""
 
-        response = model.generate_content([prompt, image])
+        # Upload PDF to Gemini
+        pdf_file = genai.upload_file(io.BytesIO(pdf_bytes), mime_type='application/pdf')
+        
+        response = model.generate_content([prompt, pdf_file])
 
         # Extract token usage from response
-        # The usage_metadata fields might have different names in the API
         input_tokens = 0
         output_tokens = 0
         
@@ -77,8 +74,6 @@ CATEGORY: [category name in lowercase]"""
             logger.info(f"Token usage - Input: {input_tokens}, Output: {output_tokens}")
         else:
             print("[DEBUG] No usage_metadata found on response!")
-            input_tokens = 0
-            output_tokens = 0
         
         # Calculate cost (Gemini 2.5 Flash pricing as of Nov 2024)
         # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
@@ -121,4 +116,4 @@ CATEGORY: [category name in lowercase]"""
 
     except Exception as e:
         logger.error(f"Gemini Vision API call failed: {str(e)}")
-        raise Exception(f"Failed to analyze image: {str(e)}")
+        raise Exception(f"Failed to analyze PDF: {str(e)}")

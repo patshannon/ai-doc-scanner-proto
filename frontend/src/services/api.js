@@ -15,7 +15,7 @@ async function getIdTokenSafe() {
   }
 }
 
-export async function processDocument(imageDataUri, googleAccessToken) {
+export async function processDocument(pdfDataUri, googleAccessToken) {
   if (!API_BASE || USE_MOCKS) {
     // Mock response when no backend configured yet.
     return Promise.resolve({
@@ -32,7 +32,7 @@ export async function processDocument(imageDataUri, googleAccessToken) {
     headers.Authorization = `Bearer ${idToken}`;
   }
 
-  const body = { imageData: imageDataUri };
+  const body = { pdfData: pdfDataUri };
   if (googleAccessToken) {
     body.googleAccessToken = googleAccessToken;
   }
