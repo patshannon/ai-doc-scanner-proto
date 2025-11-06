@@ -63,11 +63,21 @@ export async function generatePdfFromImage(uri, title) {
 
 export async function convertPdfToDataUri(pdfUri) {
   try {
-    const { readAsStringAsync } = await import('expo-file-system');
-    const base64 = await readAsStringAsync(pdfUri, { encoding: 'base64' });
+    const { File } = await import('expo-file-system');
+    const file = new File([pdfUri], 'document.pdf');
+    const base64 = await file.text().then(text => 
+      Buffer.from(text).toString('base64')
+    );
     return `data:application/pdf;base64,${base64}`;
   } catch (error) {
-    throw new Error(`Failed to convert PDF to data URI: ${error.message}`);
+    // Fallback to legacy API
+    try {
+      const { readAsStringAsync } = await import('expo-file-system/legacy');
+      const base64 = await readAsStringAsync(pdfUri, { encoding: 'base64' });
+      return `data:application/pdf;base64,${base64}`;
+    } catch (legacyError) {
+      throw new Error(`Failed to convert PDF to data URI: ${error.message}`);
+    }
   }
 }
 
