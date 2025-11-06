@@ -1,26 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { runOcr } from '../services/ocr.js';
-import { analyze } from '../services/api.js';
+import { generatePdfFromImage } from '../services/drive.js';
 
 export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
-  const [status, setStatus] = useState('Running OCR');
+  const [status, setStatus] = useState('Generating PDF');
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let mounted = true;
     const work = async () => {
       try {
-        setStatus('Running OCR');
-        const ocrText = await runOcr(capture);
-        setStatus('Analyzing');
-        const res = await analyze({
-          ocrText,
-          exifDate: capture?.exifDate || null,
-          thumbBase64: capture?.thumbBase64 || null,
-          locale: 'en-CA'
-        });
-        if (mounted) onAnalyzed(res);
+        setStatus('Generating PDF');
+        const pdf = await generatePdfFromImage(capture?.uri, 'document');
+        if (mounted) {
+          onAnalyzed({ pdf });
+        }
       } catch (e) {
         setError(e?.message || 'Processing failed');
       }

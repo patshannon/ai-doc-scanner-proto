@@ -2,21 +2,15 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 
 export default function ConfirmScreen({ initial, onConfirm, onBack }) {
-  const [docType, setDocType] = useState(initial?.docType || 'other');
   const [title, setTitle] = useState(initial?.title || '');
-  const [date, setDate] = useState(initial?.date || '');
-  const [folderPath, setFolderPath] = useState(initial?.folderPath || '');
+  const [category, setCategory] = useState(initial?.category || 'other');
 
   return (
     <ScrollView contentContainerStyle={styles.wrap}>
-      <Text style={styles.label}>Type</Text>
-      <TextInput style={styles.input} value={docType} onChangeText={setDocType} />
       <Text style={styles.label}>Title</Text>
       <TextInput style={styles.input} value={title} onChangeText={setTitle} />
-      <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-      <TextInput style={styles.input} value={date} onChangeText={setDate} />
-      <Text style={styles.label}>Folder Path</Text>
-      <TextInput style={styles.input} value={folderPath} onChangeText={setFolderPath} />
+      <Text style={styles.label}>Category</Text>
+      <TextInput style={styles.input} value={category} onChangeText={setCategory} />
 
       <View style={styles.row}>
         <TouchableOpacity style={[styles.btn, styles.secondary]} onPress={onBack}>
@@ -24,7 +18,7 @@ export default function ConfirmScreen({ initial, onConfirm, onBack }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.btn}
-          onPress={() => onConfirm({ ...initial, docType, title, date, folderPath })}
+          onPress={() => onConfirm({ ...initial, title, category })}
         >
           <Text style={styles.btnText}>Confirm</Text>
         </TouchableOpacity>

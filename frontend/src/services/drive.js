@@ -1,11 +1,10 @@
-// Google Drive integration via backend API
-import { uploadToDrive as uploadImageToBackend } from './ocr.js';
+// Generate PDF from camera image on the frontend.
 import { printToFileAsync } from 'expo-print';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 export async function generatePdfFromImage(uri, title) {
   try {
-    // First, convert the image to base64 so it can be embedded in HTML
+    // Convert the image to base64 so it can be embedded in HTML
     const manipulated = await manipulateAsync(
       uri,
       [{ resize: { width: 2048 } }], // Resize to reasonable size for PDF
@@ -62,29 +61,20 @@ export async function generatePdfFromImage(uri, title) {
   }
 }
 
-export async function uploadToDriveAndIndex(pdf, analysis, googleAccessToken = null) {
-  // Upload PDF to Google Drive via backend API
+export async function convertPdfToDataUri(pdfUri) {
   try {
-    const filename = pdf?.name || `${analysis?.title || 'Document'}.pdf`;
-    const mimeType = pdf?.mimeType || 'application/pdf';
-    const folderPath = analysis?.folderPath || 'Documents/Other';
-
-    // Create capture object with the PDF URI
-    const capture = { uri: pdf?.uri };
-
-    // Call backend upload endpoint with Google access token
-    const result = await uploadImageToBackend(capture, filename, folderPath, googleAccessToken, mimeType);
-
-    return {
-      fileId: result.fileId,
-      webViewLink: result.webViewLink,
-      name: filename,
-      metadata: analysis,
-      folderId: result.folderId
-    };
+    const fetch_ = require('react-native/Libraries/Network/fetch').default;
+    const response = await fetch_(pdfUri);
+    const blob = await response.blob();
+    const reader = new FileReader();
+    
+    return new Promise((resolve, reject) => {
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   } catch (error) {
-    console.error('Drive upload error:', error);
-    throw new Error(`Failed to upload to Google Drive: ${error.message}`);
+    throw new Error(`Failed to convert PDF to data URI: ${error.message}`);
   }
 }
 

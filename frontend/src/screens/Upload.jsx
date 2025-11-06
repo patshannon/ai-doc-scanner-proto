@@ -1,42 +1,35 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { generatePdfFromImage } from '../services/drive.js';
-import { uploadToDriveAndIndex } from '../services/drive.js';
-import { ensureFolderPath } from '../services/api.js';
+import { generatePdfFromImage, convertPdfToDataUri } from '../services/drive.js';
+import { processDocument } from '../services/api.js';
 
 export default function UploadScreen({ capture, analysis, googleAuth, onUploaded, onBack }) {
-  const [status, setStatus] = useState('Preparing PDF');
+  const [status, setStatus] = useState('Preparing');
   const [error, setError] = useState(null);
-  const [ensuredPath, setEnsuredPath] = useState(analysis?.folderPath || '');
 
   useEffect(() => {
     let mounted = true;
     const work = async () => {
       try {
-        setStatus('Ensuring folder path');
-        let resolved = analysis;
-        try {
-          const ensured = await ensureFolderPath(
-            analysis?.folderPath || 'Documents/Other',
-            googleAuth?.accessToken
-          );
-          if (ensured?.folderPath && ensured.folderPath !== analysis?.folderPath) {
-            resolved = { ...analysis, folderPath: ensured.folderPath };
-          }
-          if (mounted) {
-            setEnsuredPath(ensured?.folderPath || analysis?.folderPath || '');
-          }
-        } catch (_e) {
-          // Non-fatal in prototype; proceed with original path
-          if (mounted) {
-            setEnsuredPath(analysis?.folderPath || '');
-          }
-        }
         setStatus('Generating PDF');
-        const pdf = await generatePdfFromImage(capture?.uri, resolved?.title || 'Document');
-        setStatus('Uploading to Drive');
-        const res = await uploadToDriveAndIndex(pdf, resolved, googleAuth?.accessToken);
-        if (mounted) onUploaded(res);
+        const pdf = await generatePdfFromImage(capture?.uri, analysis?.title || 'document');
+        
+        setStatus('Converting to data URI');
+        const pdfDataUri = await convertPdfToDataUri(pdf.uri);
+
+        setStatus('Processing document');
+        const res = await processDocument(pdfDataUri, googleAuth?.accessToken);
+        
+        if (mounted) {
+          onUploaded({
+            fileId: res.fileId,
+            webViewLink: res.webViewLink,
+            name: res.title,
+            title: res.title,
+            category: res.category,
+            folderId: res.folderId
+          });
+        }
       } catch (e) {
         setError(e?.message || 'Upload failed');
       }
@@ -60,7 +53,6 @@ export default function UploadScreen({ capture, analysis, googleAuth, onUploaded
     <View style={styles.center}>
       <ActivityIndicator />
       <Text style={styles.status}>{status}…</Text>
-      {ensuredPath ? <Text style={styles.detail}>Folder: {ensuredPath}</Text> : null}
     </View>
   );
 }
@@ -70,6 +62,5 @@ const styles = StyleSheet.create({
   status: { color: '#333' },
   err: { color: '#b00020' },
   btn: { backgroundColor: '#111', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
-  btnText: { color: '#fff' },
-  detail: { color: '#666', fontSize: 12 }
+  btnText: { color: '#fff' }
 });
