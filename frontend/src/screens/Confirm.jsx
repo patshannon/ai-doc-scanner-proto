@@ -5,13 +5,9 @@ export default function ConfirmScreen({ initial, onConfirm, onBack }) {
   const [title, setTitle] = useState(initial?.title || '');
   const [category, setCategory] = useState(initial?.category || 'other');
 
-  // Rough cost estimate for Gemini 2.5 Flash Vision API
-  // Input tokens (image + prompt): ~500-1000 tokens avg (~$0.075 per 1M)
-  // Output tokens (title + category): ~50 tokens avg (~$0.30 per 1M)
-  const estimatedCost = (
-    (750 * 0.075 / 1000000) + 
-    (50 * 0.30 / 1000000)
-  ).toFixed(6);
+  const inputTokens = initial?.inputTokens || 0;
+  const outputTokens = initial?.outputTokens || 0;
+  const estimatedCost = initial?.estimatedCost || 0;
 
   return (
     <ScrollView contentContainerStyle={styles.wrap}>
@@ -21,8 +17,10 @@ export default function ConfirmScreen({ initial, onConfirm, onBack }) {
       <TextInput style={styles.input} value={category} onChangeText={setCategory} />
 
       <View style={styles.costCard}>
-        <Text style={styles.costLabel}>Est. API Cost:</Text>
-        <Text style={styles.costValue}>${estimatedCost}</Text>
+        <Text style={styles.costLabel}>API Cost Breakdown</Text>
+        <Text style={styles.costDetail}>Input: {inputTokens} tokens</Text>
+        <Text style={styles.costDetail}>Output: {outputTokens} tokens</Text>
+        <Text style={styles.costValue}>${estimatedCost.toFixed(6)}</Text>
       </View>
 
       <View style={styles.row}>
@@ -53,8 +51,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#0066cc'
   },
-  costLabel: { fontSize: 11, color: '#666', fontWeight: '500' },
-  costValue: { fontSize: 16, fontWeight: '700', color: '#0066cc' },
+  costLabel: { fontSize: 11, color: '#666', fontWeight: '500', marginBottom: 4 },
+  costDetail: { fontSize: 11, color: '#666' },
+  costValue: { fontSize: 16, fontWeight: '700', color: '#0066cc', marginTop: 4 },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
   btn: { backgroundColor: '#111', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 8 },
   secondary: { backgroundColor: '#666' },

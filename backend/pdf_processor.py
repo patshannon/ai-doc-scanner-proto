@@ -7,7 +7,7 @@ to analyze document images and generate titles and categories.
 
 import io
 import os
-from typing import Tuple
+from typing import Tuple, Dict
 import logging
 
 from dotenv import load_dotenv
@@ -23,7 +23,7 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 
-def process_image_with_gemini(image_bytes: bytes) -> Tuple[str, str]:
+def process_image_with_gemini(image_bytes: bytes) -> Dict[str, any]:
     """
     Use Gemini Vision to analyze a document image and generate title and category.
 
@@ -31,7 +31,7 @@ def process_image_with_gemini(image_bytes: bytes) -> Tuple[str, str]:
         image_bytes: Image file content as bytes
 
     Returns:
-        A tuple of (title, category)
+        A dict with title, category, input_tokens, output_tokens, estimated_cost
 
     Raises:
         Exception: If Gemini API call fails
@@ -58,9 +58,18 @@ CATEGORY: [category name in lowercase]"""
 
         response = model.generate_content([prompt, image])
 
+        # Extract token usage from response
+        input_tokens = response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0
+        output_tokens = response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0
+        
+        # Calculate cost (Gemini 2.5 Flash pricing as of Nov 2024)
+        # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
+        estimated_cost = (input_tokens * 0.075 / 1_000_000) + (output_tokens * 0.30 / 1_000_000)
+
         # Parse the response
         response_text = response.text.strip()
         logger.info(f"Gemini Vision response: {response_text}")
+        logger.info(f"Token usage - Input: {input_tokens}, Output: {output_tokens}, Cost: ${estimated_cost:.6f}")
 
         title = None
         category = None
@@ -84,7 +93,13 @@ CATEGORY: [category name in lowercase]"""
 
         logger.info(f"Generated title: '{title}', category: '{category}'")
 
-        return title, category
+        return {
+            'title': title,
+            'category': category,
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
+            'estimated_cost': estimated_cost
+        }
 
     except Exception as e:
         logger.error(f"Gemini Vision API call failed: {str(e)}")

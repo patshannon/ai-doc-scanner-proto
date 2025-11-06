@@ -99,11 +99,14 @@ def process_document(
         image_bytes = base64.b64decode(parts[1])
 
         # Process image with Gemini Vision
-        title, category = pdf_processor.process_image_with_gemini(image_bytes)
+        result = pdf_processor.process_image_with_gemini(image_bytes)
 
         return ProcessDocumentResponse(
-            title=title,
-            category=category
+            title=result['title'],
+            category=result['category'],
+            inputTokens=result['input_tokens'],
+            outputTokens=result['output_tokens'],
+            estimatedCost=result['estimated_cost']
         )
 
     except HTTPException:

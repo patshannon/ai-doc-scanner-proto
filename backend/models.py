@@ -18,6 +18,9 @@ class ProcessDocumentResponse(BaseModel):
     """Response model for PDF document processing."""
     title: str
     category: str
+    inputTokens: int
+    outputTokens: int
+    estimatedCost: float
 
     class Config:
         extra = "forbid"
