@@ -59,8 +59,17 @@ CATEGORY: [category name in lowercase]"""
         response = model.generate_content([prompt, image])
 
         # Extract token usage from response
-        input_tokens = response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0
-        output_tokens = response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0
+        # The usage_metadata fields might have different names in the API
+        input_tokens = 0
+        output_tokens = 0
+        
+        if hasattr(response, 'usage_metadata'):
+            um = response.usage_metadata
+            # Try different possible field names
+            input_tokens = getattr(um, 'prompt_token_count', 0) or getattr(um, 'input_token_count', 0)
+            output_tokens = getattr(um, 'candidates_token_count', 0) or getattr(um, 'output_token_count', 0) or getattr(um, 'total_token_count', 0) - input_tokens
+            
+            logger.info(f"Raw usage_metadata: {um}")
         
         # Calculate cost (Gemini 2.5 Flash pricing as of Nov 2024)
         # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
