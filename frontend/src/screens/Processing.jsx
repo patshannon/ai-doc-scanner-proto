@@ -27,10 +27,15 @@ export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
         setStatus('Analyzing with AI');
         const res = await processDocument(imageDataUri, null);
         
+        console.log('[Processing] Backend response:', res);
+        
         if (mounted) {
           onAnalyzed({
             title: res.title,
-            category: res.category
+            category: res.category,
+            inputTokens: res.inputTokens,
+            outputTokens: res.outputTokens,
+            estimatedCost: res.estimatedCost
           });
         }
       } catch (e) {
