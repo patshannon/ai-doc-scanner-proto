@@ -1,113 +1,60 @@
-# Repository Guidelines
+# Agent Handbook
 
-## Project Status (2025-11-06)
-**Phase:** Image-to-PDF Conversion Architecture Implemented
-- ✅ PDF text extraction with PyPDF2
-- ✅ Gemini 2.0 Flash model for AI-powered title & category generation
-- ✅ Google Drive integration for document upload and folder organization
-- ✅ Firebase authentication with ID token verification
-- ✅ **Image-to-PDF conversion** via `img2pdf` library (client-side in frontend)
-- 🔄 Frontend integration in progress; manual testing of `/process-document` endpoint needed
+## Mission Snapshot (2025-11-06)
+- **Phase:** Image-to-PDF conversion architecture implemented and wired to `/process-document`
+- ✅ PyPDF2 extraction, Gemini 2.0 Flash title/category generation, Google Drive + Firebase auth in place
+- ✅ Frontend converts images to PDF (client-side via `img2pdf`-style flow) before hitting backend
+- 🔄 Outstanding: finish frontend wiring and perform manual `/process-document` end-to-end verification
 
-## Project Structure & Module Organization
-- `frontend/` — Client app (React Native/Expo, JavaScript). Captures images/PDFs and converts to PDF before sending to backend.
-- `backend/` — Python FastAPI server with Gemini AI, PDF processing, and Google Drive integration.
-  - `app.py` — Main FastAPI application with `/process-document` endpoint.
-  - `pdf_processor.py` — PDF text extraction and Gemini-based title/category generation.
-  - `drive.py` — Google Drive folder management and document upload.
-  - `auth.py` — Firebase ID token verification.
-  - `models.py` — Pydantic request/response schemas.
-- `docs/` — Product and technical specs. See `docs/specs.md` for full context.
-- `README.md` — Keep quickstart instructions up to date.
+## Current Focus
+- Run manual tests that start with PDF capture/creation → `/process-document` → Drive upload → metadata confirmation
+- Validate Gemini-generated titles/categories against invoices, receipts, contracts, tax docs, and unknown types
+- Keep docs updated as surface changes (especially `PROCESS_DOCUMENT_API.md` and `docs/specs.md` excerpts)
 
-## Build and Development Commands
-- Frontend (prototype):
-  - `cd frontend && npm install && npx expo start` — Start Expo dev server.
-- Backend (prototype):
-  - Setup: `cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-  - Run: `uvicorn app:app --reload` (listens on `http://localhost:8000`)
-  - Health check: `curl http://localhost:8000/healthz`
-  - Test document processing: POST to `/process-document` with `{ pdfData: "data:application/pdf;base64,..." }` and `Authorization: Bearer <firebase-id-token>`
+## Directory-Specific Instructions
+- **Backend work:** see `backend/AGENTS.md` for API contracts, auth constraints, and service-specific workflows
+- **Frontend work:** see `frontend/AGENTS.md` for Expo/React Native flow, conversion requirements, and Firebase config expectations
+- Stay scoped—backend agents should not refactor frontend, and vice versa
 
-## Coding Style & Naming Conventions
-- Frontend: plain JavaScript (no TypeScript). 2‑space indent. Keep semicolon and quote style consistent within files. No linters/formatters configured.
-- Backend: simple Python. 4‑space indent. Follow common sense readability. No linters/formatters configured.
-- Naming: web files `kebab-case`, Python modules `snake_case`, classes `PascalCase`, constants `UPPER_SNAKE_CASE`.
-- Keep functions small; prefer utilities in `frontend/src/lib/` and `backend/app/services/`.
+## Source of Truth Docs
+- Always (re)read `docs/specs.md` plus the area-specific spec (`docs/backend-spec.md` or `docs/frontend-spec.md`) before editing
+- Mirror API changes in `backend/PROCESS_DOCUMENT_API.md`; attach rationale in PR/commit summaries when behavior shifts
+- `docs/plan.md` tracks roadmap context; skim before large changes
 
-## Testing Guidelines
-- No automated tests for the prototype. Do manual checks:
-  - Happy path: capture/upload PDF → `/process-document` → Gemini generates title & category → Drive upload succeeds.
-  - Test with: invoices, receipts, contracts, tax documents, and unknown document types.
-  - Edge cases: corrupted PDFs, scanned images (low quality), multi-page documents, non-English text.
-  - Verify: extracted text accuracy, category classification, Drive folder organization.
+## Build & Run Cheatsheet
+- **Frontend:** `cd frontend && npm install && npx expo start`
+- **Backend setup:** `cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+- **Backend run:** `uvicorn app:app --reload` (`http://localhost:8000`); health check with `curl http://localhost:8000/healthz`
+- **Manual test:** POST `/process-document` with `{ pdfData: "data:application/pdf;base64,..." }` and `Authorization: Bearer <firebase-id-token>`
 
-## Commit & Pull Request Guidelines
-- Use clear, action‑oriented commit messages (Conventional Commits optional).
-- PRs include a concise description, linked issues (if any), and screenshots for UI changes.
-- Keep PRs focused and reviewable. Update `README.md` if setup or behavior changes.
+## Coding Style & Naming
+- Frontend: plain JavaScript, 2-space indent, maintain file-local quote/semi style, prefer utilities in `frontend/src/lib/`
+- Backend: Python w/ 4-space indent, small functions, utilities under `backend/app/services/` when they emerge
+- Naming: web files `kebab-case`, Python modules `snake_case`, classes `PascalCase`, constants `UPPER_SNAKE_CASE`
 
-## Security & Configuration Tips
-- Store secrets in `.env` (not committed). Provide `frontend/.env.example` and `backend/.env.example`.
-- Required env vars (backend):
-  - `FIREBASE_PROJECT_ID` — Firebase project ID
-  - `GEMINI_API_KEY` — Google Generative AI API key (for Gemini 2.0 Flash)
-  - `GOOGLE_APPLICATION_CREDENTIALS` — Path to Firebase service account JSON (for Drive & Firestore)
-- Avoid logging PDF text, extracted content, or PII; log only error diagnostics and request metrics.
-- Disable auth in dev mode via `AUTH_DISABLED=true` if needed for local testing.
+## Testing & Validation
+- No automated tests; rely on manual flows for invoices/receipts/contracts/tax/unknowns, low-quality scans, multi-page PDFs, and non-English samples
+- Verify: extracted text sanity, Gemini classification accuracy, Drive folder hierarchy + permissions, graceful handling of corrupted PDFs
+- Document manual test status in PR descriptions when possible
 
-## Recent Backend Changes (Commit 9000527)
-### What Changed
-- **Rebuilt PDF processing** from OCR-only to full Gemini AI pipeline:
-  - Text extraction now uses PyPDF2 (supports native PDFs without OCR dependency).
-  - AI-powered title & category generation via Gemini 2.0 Flash (replaces heuristics).
-  - Automatic Google Drive upload with folder organization.
-- **New endpoint:** `POST /process-document` accepts base64-encoded PDF, returns title, category, Drive fileId & link.
-- **Updated auth:** Firebase ID token verification required (with dev bypass support).
+## Security & Configuration
+- Secrets live in `.env`; keep `frontend/.env.example` and `backend/.env.example` updated
+- Backend requires: `FIREBASE_PROJECT_ID`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`
+- Avoid logging PDF text or PII; log diagnostics only; enable `AUTH_DISABLED=true` solely for local debugging
 
-### Dependencies Added
-- `google-generativeai` — Gemini API client
-- `PyPDF2` — PDF text extraction
-- `google-cloud-firestore`, `google-auth` — Cloud services
+## Architecture Decision — Image-to-PDF Pipeline
+- Convert every capture to PDF on the client → backend only ingests `data:application/pdf;base64,...`
+- PyPDF2 handles text extraction; Gemini infers title + category even if extraction is sparse
+- Google Drive storage uses `Documents/{Category}/{Year}/{Sanitized-Title}.pdf`
+- Future: consider OCR fallback (Tesseract/Vision) when PDFs lack text layers
 
-## System Architecture Decision: Image-to-PDF Conversion
+## Known Gaps / Next Steps
+- [ ] Frontend: finish image-to-PDF conversion + API integration (Expo `Print`/`FileSystem` flow or equivalent)
+- [ ] Backend: add request logging/monitoring and consider OCR fallback hook
+- [ ] Test Gemini accuracy for diverse doc sets and image-based PDFs
+- [ ] Validate Drive folder structure + permissions in prod-like env
 
-### Decision (2025-11-06)
-**All documents (images and PDFs) are converted to PDF format before backend processing.**
-
-### Rationale
-1. **Unified Processing Pipeline:** Backend only handles PDFs → simpler codebase, easier maintenance
-2. **Better Text Extraction:** PyPDF2 extracts text from native PDFs reliably without OCR
-3. **Storage Consistency:** All documents stored in Drive as PDFs → predictable viewer experience
-4. **Future-Proof:** Easy to add OCR layer later if needed (e.g., for scanned images embedded in PDFs)
-
-### Implementation Strategy
-- **Frontend (Client-Side Conversion):**
-  - Use `react-native-pdf` or native JS libraries (e.g., `img2pdf` equivalent) to convert captured images to PDF
-  - Embed image in single-page PDF with original resolution
-  - Base64-encode PDF and send to backend via `/process-document`
-- **Backend (PDF-Only Processing):**
-  - Accepts only `data:application/pdf;base64,...` format
-  - PyPDF2 extracts text (works for native PDFs; blank for image-only PDFs without OCR layer)
-  - Gemini AI generates title/category from extracted text (or minimal text if image-based)
-  - Upload PDF to Google Drive with categorized folder structure
-
-### Trade-offs
-- **Pros:** Simple backend, consistent storage, no image format handling complexity
-- **Cons:** Image-PDFs without OCR layer yield minimal text (Gemini must infer from filename or fail gracefully)
-- **Future Enhancement:** Add OCR preprocessing (e.g., Tesseract or Vision API) for image-based PDFs if text extraction fails
-
-### Next Steps / Known Gaps
-- [ ] Frontend: implement image-to-PDF conversion (research `expo-image-manipulator` + PDF creation libs)
-- [ ] Frontend: implement PDF capture/encoding and API integration
-- [ ] Test Gemini category accuracy and title generation with diverse document types
-- [ ] Test with image-based PDFs (no embedded text) to verify Gemini behavior
-- [ ] Verify Drive folder structure and permissions in production
-- [ ] Add request logging & monitoring for API health
-- [ ] Consider adding OCR fallback for image-based PDFs with poor text extraction
-
-## Agent-Specific Instructions
-- Read `docs/specs.md` before changes and align with `docs/backend-spec.md` and `docs/frontend-spec.md`.
-- For backend: focus on `backend/` directory. For frontend: focus on `frontend/` directory. Avoid broad refactors.
-- Add concise doc updates in `PROCESS_DOCUMENT_API.md` (backend) or relevant docs/ files for API changes.
-- No automated tests in prototype; validate manually via curl/Postman or frontend integration tests.
+## Agent Rules of Engagement
+- Keep PRs small, action-oriented, and update `README.md` if setup steps change
+- Coordinate doc updates (`docs/*.md`, `PROCESS_DOCUMENT_API.md`) whenever behavior or API shape changes
+- Manual validation over automation for now—note coverage gaps in review comments

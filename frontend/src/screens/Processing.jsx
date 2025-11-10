@@ -1,43 +1,57 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { generatePdfFromImage, convertPdfToDataUri } from '../services/drive.js';
+import { generatePdfFromImages, convertPdfToDataUri } from '../services/drive.js';
 import { processDocument } from '../services/api.js';
 
-export default function ProcessingScreen({ capture, onAnalyzed, onBack }) {
-  const [status, setStatus] = useState('Generating PDF');
+export default function ProcessingScreen({ captures = [], googleAuth, onAnalyzed, onBack }) {
+  const [status, setStatus] = useState('Preparing PDF');
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     const work = async () => {
+      if (!captures.length) {
+        setError('No pages to process');
+        return;
+      }
       try {
-        setStatus('Generating PDF from image');
-        const pdf = await generatePdfFromImage(capture?.uri, 'document');
-        
+        setStatus('Building PDF from pages');
+        const pdf = await generatePdfFromImages(
+          captures,
+          'document',
+          ({ current, total }) => {
+            if (!cancelled) {
+              setStatus(`Preparing page ${current} of ${total}`);
+            }
+          }
+        );
+
         setStatus('Converting PDF to data URI');
         const pdfDataUri = await convertPdfToDataUri(pdf.uri);
 
         setStatus('Analyzing PDF with AI');
-        const res = await processDocument(pdfDataUri, null);
-        
-        console.log('[Processing] Backend response:', res);
-        
-        if (mounted) {
+        const googleAccessToken = googleAuth?.accessToken || null;
+        // Request analysis only; UploadScreen will send the final upload call.
+        const res = await processDocument(pdfDataUri, googleAccessToken, true);
+
+        if (!cancelled) {
           onAnalyzed({
-            title: res.title,
-            category: res.category,
-            inputTokens: res.inputTokens,
-            outputTokens: res.outputTokens,
-            estimatedCost: res.estimatedCost
+            ...res,
+            pdfDataUri,
+            pageCount: captures.length
           });
         }
       } catch (e) {
-        setError(e?.message || 'Processing failed');
+        if (!cancelled) {
+          setError(e?.message || 'Processing failed');
+        }
       }
     };
     work();
-    return () => { mounted = false; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [captures, googleAuth, onAnalyzed]);
 
   if (error) {
     return (
@@ -70,4 +84,3 @@ const styles = StyleSheet.create({
   cancelBtn: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
   cancelText: { color: '#666' }
 });
-

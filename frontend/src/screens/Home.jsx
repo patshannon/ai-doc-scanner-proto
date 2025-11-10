@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 
 const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -9,98 +9,102 @@ export default function HomeScreen({ onStartCamera, onTestGoogle, googleAuth }) 
   useEffect(() => {
     const checkBackend = async () => {
       if (!API_BASE) {
-        console.log('[Network] No API_BASE configured, using mocks');
         setBackendStatus('mocks');
         return;
       }
 
       try {
-        console.log(`[Network] Checking backend at ${API_BASE}/healthz`);
         const res = await fetch(`${API_BASE}/healthz`, { method: 'GET' });
-        if (res.ok) {
-          console.log('[Network] ✓ Backend is reachable');
-          setBackendStatus('connected');
-        } else {
-          console.warn(`[Network] Backend returned ${res.status}`);
-          setBackendStatus('error');
-        }
+        setBackendStatus(res.ok ? 'connected' : 'error');
       } catch (e) {
-        console.error('[Network] Backend unreachable:', e.message);
+        console.warn('[Network] Backend unreachable', e.message);
         setBackendStatus('offline');
       }
     };
 
     checkBackend();
-    const interval = setInterval(checkBackend, 10000); // Check every 10s
+    const interval = setInterval(checkBackend, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  const driveStatusText = React.useMemo(() => {
+  const driveStatusText = useMemo(() => {
     if (!googleAuth) return 'Google OAuth not linked';
     if (googleAuth.expiresAt && googleAuth.expiresAt <= Date.now()) {
-      return 'Google Drive scope expired — re-authorize';
+      return 'Drive scope expired — re-authorize';
     }
-    return 'Google Drive scope ready';
+    return 'Drive scope ready';
   }, [googleAuth]);
-
-  const driveStatusColor = googleAuth && (!googleAuth.expiresAt || googleAuth.expiresAt > Date.now())
-    ? '#0a8754'
-    : '#cc6600';
 
   const backendStatusText = useMemo(() => {
     switch (backendStatus) {
       case 'checking': return 'Checking backend…';
-      case 'connected': return `✓ Backend connected (${API_BASE})`;
-      case 'offline': return `✗ Backend offline (${API_BASE})`;
+      case 'connected': return `✓ Backend connected`;
+      case 'offline': return 'Backend offline';
       case 'error': return 'Backend error';
-      case 'mocks': return 'Using mock responses';
-      default: return 'Unknown';
+      case 'mocks': return 'Running with mocks';
+      default: return 'Status unknown';
     }
   }, [backendStatus]);
 
   const backendColor = {
     checking: '#999',
-    connected: '#0a8754',
-    offline: '#b00020',
-    error: '#cc6600',
-    mocks: '#0066cc'
+    connected: '#30bfa1',
+    offline: '#ff6b6b',
+    error: '#f59b23',
+    mocks: '#7f9cf5'
   }[backendStatus] || '#999';
+
+  const featureHighlights = [
+    'Live capture and cleanup before conversion',
+    'Gemini 2.0 suggests titles, categories, and folder paths',
+    'PDFs uploaded securely to Documents/{Category}/{Year} on Drive'
+  ];
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>AI Document Scanner</Text>
-        <Text style={styles.subtitle}>Scan, extract, and upload documents to Google Drive</Text>
-
-        <View style={styles.statusCard}>
-          <Text style={styles.statusLabel}>Backend Status</Text>
-          <Text style={[styles.statusText, { color: backendColor }]}>
-            {backendStatusText}
-          </Text>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.heroCard}>
+          <Text style={styles.title}>Doc AI Scanner</Text>
+          <Text style={styles.subtitle}>Snap an invoice, receipt, or contract and let the backend auto-title, categorize, and archive it.</Text>
+          <Text style={styles.helper}>You will confirm the auto-generated metadata before uploading to Drive.</Text>
         </View>
 
-        <View style={styles.statusCard}>
-          <Text style={styles.statusLabel}>Drive Status</Text>
-          <Text style={[styles.statusText, { color: driveStatusColor }]}>
-            {driveStatusText}
-          </Text>
+        <View style={styles.statusList}>
+          <View style={styles.statusItem}>
+            <Text style={styles.statusLabel}>Backend</Text>
+            <Text style={[styles.statusText, { color: backendColor }]}>{backendStatusText}</Text>
+            <Text style={styles.statusDetail}>{API_BASE ? API_BASE : 'No base URL configured'}</Text>
+          </View>
+          <View style={styles.statusItem}>
+            <Text style={styles.statusLabel}>Drive</Text>
+            <Text style={[styles.statusText, { color: googleAuth ? '#30bfa1' : '#ff6b6b' }]}>{driveStatusText}</Text>
+            <Text style={styles.statusDetail}>Scope: drive.file</Text>
+          </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={onStartCamera}
-          disabled={backendStatus === 'offline'}
-        >
-          <Text style={styles.primaryButtonText}>Start Camera</Text>
-        </TouchableOpacity>
+        <View style={styles.featuresCard}>
+          <Text style={styles.featuresTitle}>What happens here</Text>
+          {featureHighlights.map((item) => (
+            <View key={item} style={styles.featureRow}>
+              <View style={styles.featureDot} />
+              <Text style={styles.featureText}>{item}</Text>
+            </View>
+          ))}
+        </View>
 
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={onTestGoogle}
-        >
-          <Text style={styles.secondaryButtonText}>Configure Google OAuth</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.actions}> 
+          <TouchableOpacity
+            style={[styles.primaryButton, backendStatus === 'offline' && styles.disabledButton]}
+            onPress={onStartCamera}
+            disabled={backendStatus === 'offline'}
+          >
+            <Text style={styles.primaryText}>Start capture sequence</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={onTestGoogle}>
+            <Text style={styles.secondaryText}>Configure Google OAuth</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -108,71 +112,133 @@ export default function HomeScreen({ onStartCamera, onTestGoogle, googleAuth }) 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: '#05060b'
   },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
+  scroll: {
+    padding: 20,
     gap: 16
   },
+  heroCard: {
+    backgroundColor: '#101420',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.25,
+        shadowRadius: 20
+      },
+      android: {
+        elevation: 8
+      }
+    })
+  },
   title: {
+    color: '#fdfefe',
     fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: '#111'
+    fontWeight: '700'
   },
   subtitle: {
-    fontSize: 15,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 24
+    color: '#dfe6ff',
+    fontSize: 16,
+    marginTop: 8,
+    lineHeight: 22
   },
-  statusCard: {
-    backgroundColor: '#f8f8f8',
+  helper: {
+    color: '#8ca3ff',
+    marginTop: 12,
+    fontSize: 13
+  },
+  statusList: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  statusItem: {
+    flex: 1,
+    backgroundColor: '#0b0f1d',
+    borderRadius: 16,
     padding: 16,
-    borderRadius: 12,
-    width: '100%',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)'
   },
   statusLabel: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '500'
+    color: '#7c8dbf',
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase'
   },
   statusText: {
-    fontSize: 14,
-    fontWeight: '600'
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 6
+  },
+  statusDetail: {
+    fontSize: 12,
+    color: '#a0b1db',
+    marginTop: 6
+  },
+  featuresCard: {
+    backgroundColor: '#0c1221',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)'
+  },
+  featuresTitle: {
+    color: '#e7eeff',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 12
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10
+  },
+  featureDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#30bfa1',
+    marginRight: 10
+  },
+  featureText: {
+    flex: 1,
+    color: '#c9d3f2',
+    fontSize: 13,
+    lineHeight: 18
+  },
+  actions: {
+    marginTop: 4,
+    gap: 12
   },
   primaryButton: {
-    backgroundColor: '#111',
+    backgroundColor: '#30bfa1',
+    borderRadius: 16,
     paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    width: '100%',
     alignItems: 'center'
   },
-  primaryButtonText: {
-    color: '#fff',
+  primaryText: {
+    color: '#04140d',
     fontSize: 16,
-    fontWeight: '600'
+    fontWeight: '700'
   },
   secondaryButton: {
-    backgroundColor: '#fff',
+    borderRadius: 16,
     paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    width: '100%',
-    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd'
+    borderColor: '#2e3b78',
+    alignItems: 'center'
   },
-  secondaryButtonText: {
-    color: '#111',
+  secondaryText: {
+    color: '#cbd6ff',
     fontSize: 15,
-    fontWeight: '500'
+    fontWeight: '600'
+  },
+  disabledButton: {
+    opacity: 0.45
   }
 });

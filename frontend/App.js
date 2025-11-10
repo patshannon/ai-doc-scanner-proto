@@ -4,6 +4,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import HomeScreen from './src/screens/Home.jsx';
 import CameraScreen from './src/screens/Camera.jsx';
+import PageReviewScreen from './src/screens/PageReview.jsx';
 import ProcessingScreen from './src/screens/Processing.jsx';
 import ConfirmScreen from './src/screens/Confirm.jsx';
 import UploadScreen from './src/screens/Upload.jsx';
@@ -11,9 +12,11 @@ import AuthScreen from './src/screens/Auth.jsx';
 import GoogleTestScreen from './src/screens/GoogleTest.jsx';
 import { auth } from './src/services/firebase.js';
 
+const MAX_PAGES = 5;
+
 export default function App() {
   const [screen, setScreen] = useState('Home');
-  const [capture, setCapture] = useState(null);
+  const [captures, setCaptures] = useState([]);
   const [analysis, setAnalysis] = useState(null);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -45,7 +48,7 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setScreen('Home');
-      setCapture(null);
+      setCaptures([]);
       setAnalysis(null);
       setGoogleAuth(null);
     }
@@ -103,23 +106,63 @@ export default function App() {
         )}
         {screen === 'Camera' && (
           <CameraScreen
-            onCaptured={(cap) => {
-              setCapture(cap);
-              go('Processing');
+            captures={captures}
+            maxPages={MAX_PAGES}
+            onAddCapture={(cap) => {
+              setCaptures((prev) => {
+                if (prev.length >= MAX_PAGES) return prev;
+                const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                return [...prev, { ...cap, id }];
+              });
             }}
+            onRemoveCapture={(id) => {
+              setCaptures((prev) => prev.filter((c) => c.id !== id));
+            }}
+            onRequestReview={() => go('PageReview')}
             onTestGoogle={() => go('GoogleTest')}
             googleAuth={googleAuth}
             onBack={() => go('Home')}
           />
         )}
+        {screen === 'PageReview' && (
+          <PageReviewScreen
+            captures={captures}
+            maxPages={MAX_PAGES}
+            onRemove={(id) => setCaptures((prev) => prev.filter((c) => c.id !== id))}
+            onReorder={(fromIndex, direction) => {
+              setCaptures((prev) => {
+                const targetIndex = fromIndex + direction;
+                if (targetIndex < 0 || targetIndex >= prev.length) {
+                  return prev;
+                }
+                const clone = [...prev];
+                const [moved] = clone.splice(fromIndex, 1);
+                clone.splice(targetIndex, 0, moved);
+                return clone;
+              });
+            }}
+            onAddMore={() => go('Camera')}
+            onStartOver={() => {
+              setCaptures([]);
+              setAnalysis(null);
+              go('Camera');
+            }}
+            onContinue={() => {
+              if (captures.length === 0) return;
+              go('Processing');
+            }}
+            onBack={() => go('Camera')}
+          />
+        )}
         {screen === 'Processing' && (
           <ProcessingScreen
-            capture={capture}
+            captures={captures}
+            googleAuth={googleAuth}
             onAnalyzed={(res) => {
               setAnalysis(res);
               go('Confirm');
             }}
-            onBack={() => go('Camera')}
+            onBack={() => go('PageReview')}
           />
         )}
         {screen === 'Confirm' && (
@@ -135,8 +178,9 @@ export default function App() {
         {screen === 'Upload' && (
           <UploadScreen
             analysis={analysis}
+            googleAuth={googleAuth}
             onDone={() => {
-              setCapture(null);
+              setCaptures([]);
               setAnalysis(null);
               go('Home');
             }}

@@ -6,7 +6,8 @@ import * as Google from 'expo-auth-session/providers/google';
 // This tells the browser to return to the app after auth
 WebBrowser.maybeCompleteAuthSession();
 
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_METADATA_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 
 export default function GoogleTestScreen({ onBack, onResult, initial }) {
   const [status, setStatus] = useState('idle');
@@ -31,7 +32,7 @@ export default function GoogleTestScreen({ onBack, onResult, initial }) {
     iosClientId: ids.iosClientId || ids.expoClientId,
     androidClientId: ids.androidClientId || ids.expoClientId,
     webClientId: ids.webClientId,
-    scopes: ['openid', 'profile', 'email', DRIVE_SCOPE],
+    scopes: ['openid', 'profile', 'email', DRIVE_FILE_SCOPE, DRIVE_METADATA_SCOPE],
     redirectUri
   });
 
@@ -80,7 +81,7 @@ export default function GoogleTestScreen({ onBack, onResult, initial }) {
     <ScrollView contentContainerStyle={styles.wrap}>
       <Text style={styles.title}>Google OAuth Test</Text>
       <Text style={styles.copy}>
-        Use this flow to confirm Drive access (`drive.file` scope) and capture an access token for uploads.
+        Use this flow to confirm Drive access (`drive.file` and `drive.metadata.readonly` scopes) and capture an access token for uploads and folder scanning.
       </Text>
       {!readyForAuth ? (
         <Text style={styles.warning}>

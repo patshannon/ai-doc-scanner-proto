@@ -3,7 +3,7 @@
 import base64
 import io
 import os
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
@@ -26,7 +26,13 @@ def _get_service_account_credentials():
     if not os.path.exists(creds_path):
         raise DriveError(f"Credentials file not found: {creds_path}")
 
-    scopes = ["https://www.googleapis.com/auth/drive.file"]
+    # Required scopes for Drive operations:
+    # - drive.file: Create and manage files created by this app
+    # - drive.metadata.readonly: Read folder structure for smart organization
+    scopes = [
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.metadata.readonly"
+    ]
     credentials = service_account.Credentials.from_service_account_file(
         creds_path, scopes=scopes
     )
@@ -34,7 +40,15 @@ def _get_service_account_credentials():
 
 
 def _get_user_credentials(access_token: str):
-    """Create credentials from user's OAuth access token."""
+    """
+    Create credentials from user's OAuth access token.
+
+    Note: User access tokens must be obtained with these scopes:
+    - https://www.googleapis.com/auth/drive.file (upload files)
+    - https://www.googleapis.com/auth/drive.metadata.readonly (scan folders)
+
+    Scopes are requested during OAuth flow in the frontend.
+    """
     if not access_token:
         raise DriveError("Access token is required")
 
@@ -113,6 +127,119 @@ def _create_folder(service, folder_name: str, parent_id: Optional[str] = None) -
     return folder.get("id")
 
 
+def _build_folder_tree(folders: List[Dict], max_depth: int = 2) -> List[Dict]:
+    """
+    Build hierarchical folder tree from flat list of folders.
+
+    Args:
+        folders: Flat list of folder dicts with 'id', 'name', and 'parents'
+        max_depth: Maximum depth to include (0 = root level only)
+
+    Returns:
+        List of root-level folders with nested 'children' arrays
+    """
+    # Create lookup map: folder_id -> folder
+    folder_map = {f["id"]: {**f, "children": []} for f in folders}
+
+    # Build parent-child relationships
+    root_folders = []
+    for folder in folders:
+        if "parents" in folder and folder["parents"]:
+            parent_id = folder["parents"][0]  # First parent
+            if parent_id in folder_map:
+                folder_map[parent_id]["children"].append(folder_map[folder["id"]])
+        else:
+            # No parents means root-level folder
+            root_folders.append(folder_map[folder["id"]])
+
+    return root_folders
+
+
+def scan_drive_folders(access_token: str, max_depth: int = 2) -> Dict:
+    """
+    Scan user's Google Drive for existing folder structure up to specified depth.
+
+    Args:
+        access_token: User's OAuth access token
+        max_depth: Maximum depth to scan (0 = root only, 1 = root + children, etc.)
+
+    Returns:
+        {
+            'folders': [  # Flat list of all folders
+                {'id': str, 'name': str, 'path': str, 'depth': int, 'parents': [str]}
+            ],
+            'tree': [  # Hierarchical tree structure
+                {'id': str, 'name': str, 'children': [...]}
+            ]
+        }
+
+    Raises:
+        DriveError: If scanning fails
+    """
+    try:
+        service = _get_drive_service(access_token)
+        all_folders = []
+
+        # Level 0: Get root-level folders
+        query = (
+            "mimeType='application/vnd.google-apps.folder' and "
+            "trashed=false and "
+            "'root' in parents"
+        )
+        results = service.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name, parents)",
+            pageSize=100
+        ).execute()
+
+        root_folders = results.get("files", [])
+        for folder in root_folders:
+            all_folders.append({
+                "id": folder["id"],
+                "name": folder["name"],
+                "path": folder["name"],
+                "depth": 0,
+                "parents": folder.get("parents", [])
+            })
+
+        # If max_depth >= 1, scan children of root folders
+        if max_depth >= 1:
+            for root_folder in root_folders:
+                query = (
+                    "mimeType='application/vnd.google-apps.folder' and "
+                    "trashed=false and "
+                    f"'{root_folder['id']}' in parents"
+                )
+                results = service.files().list(
+                    q=query,
+                    spaces="drive",
+                    fields="files(id, name, parents)",
+                    pageSize=100
+                ).execute()
+
+                child_folders = results.get("files", [])
+                for folder in child_folders:
+                    all_folders.append({
+                        "id": folder["id"],
+                        "name": folder["name"],
+                        "path": f"{root_folder['name']}/{folder['name']}",
+                        "depth": 1,
+                        "parents": folder.get("parents", [])
+                    })
+
+        # Build hierarchical tree structure
+        tree = _build_folder_tree(all_folders, max_depth)
+
+        return {
+            "folders": all_folders,
+            "tree": tree
+        }
+
+    except Exception as e:
+        raise DriveError(f"Failed to scan Drive folders: {e}") from e
+
+
 def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> str:
     """
     Ensure a folder path exists in Google Drive, creating folders as needed.
@@ -155,7 +282,7 @@ def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> 
 
 
 def upload_file(
-    image_data_uri: str,
+    file_data_uri: str,
     filename: str,
     folder_id: Optional[str] = None,
     mime_type: str = "image/jpeg",
@@ -165,7 +292,7 @@ def upload_file(
     Upload a file to Google Drive.
 
     Args:
-        image_data_uri: Base64-encoded image data URI
+        file_data_uri: Base64-encoded file data URI
         filename: Name for the file in Google Drive
         folder_id: ID of the folder to upload to (None for root)
         mime_type: MIME type of the file
@@ -181,10 +308,10 @@ def upload_file(
         service = _get_drive_service(access_token)
 
         # Extract base64 data from data URI
-        if not image_data_uri.startswith("data:"):
+        if not file_data_uri.startswith("data:"):
             raise DriveError("Invalid data URI format")
 
-        parts = image_data_uri.split(",", 1)
+        parts = file_data_uri.split(",", 1)
         if len(parts) != 2:
             raise DriveError("Invalid data URI: missing base64 data")
 

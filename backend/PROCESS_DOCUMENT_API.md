@@ -41,6 +41,7 @@ Process a PDF document and upload it to Google Drive.
 - `googleAccessToken` (string, optional): User's Google OAuth access token
   - If provided, uploads to user's personal Google Drive
   - If not provided, falls back to service account (if configured)
+- The frontend now bundles up to 5 camera captures into a single multi-page PDF before calling this endpoint, so `pdfData` may represent multiple pages in sequence.
 
 #### Response
 
@@ -203,8 +204,9 @@ curl -X POST http://localhost:8000/process-document \
 
 ```typescript
 import * as ImagePicker from 'expo-image-picker';
-import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { PDFDocument } from 'pdf-lib';
 
 async function processDocument() {
   // 1. Take a picture
@@ -215,19 +217,23 @@ async function processDocument() {
 
   if (result.canceled) return;
 
-  // 2. Convert image to PDF
-  const html = `
-    <html>
-      <body>
-        <img src="${result.assets[0].uri}" style="width: 100%;" />
-      </body>
-    </html>
-  `;
+  // 2. Compress the capture and grab base64
+  const prepared = await manipulateAsync(
+    result.assets[0].uri,
+    [{ resize: { width: 1400 } }],
+    { compress: 0.6, format: SaveFormat.JPEG, base64: true }
+  );
 
-  const { uri: pdfUri } = await Print.printToFileAsync({ html });
+  // 3. Build a tiny PDF directly with pdf-lib
+  const pdfDoc = await PDFDocument.create();
+  const jpgImage = await pdfDoc.embedJpg(prepared.base64);
+  const { width, height } = jpgImage.scale(1);
+  const page = pdfDoc.addPage([width, height]);
+  page.drawImage(jpgImage, { x: 0, y: 0, width, height });
 
-  // 3. Read PDF as base64
-  const pdfBase64 = await FileSystem.readAsStringAsync(pdfUri, {
+  const pdfBase64 = await pdfDoc.saveAsBase64({ dataUri: false });
+  const pdfPath = `${FileSystem.cacheDirectory}capture-${Date.now()}.pdf`;
+  await FileSystem.writeAsStringAsync(pdfPath, pdfBase64, {
     encoding: FileSystem.EncodingType.Base64,
   });
 
@@ -238,11 +244,11 @@ async function processDocument() {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${firebaseIdToken}`,
+      Authorization: `Bearer ${firebaseIdToken}`,
     },
     body: JSON.stringify({
       pdfData: pdfDataUri,
-      googleAccessToken: googleAccessToken, // from Google Sign-In
+      googleAccessToken, // from Google Sign-In
     }),
   });
 

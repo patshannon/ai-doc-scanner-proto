@@ -14,8 +14,9 @@ This repository tracks the planning for an MVP that lets users snap a document, 
 
 ## Planned Architecture
 - Frontend: Expo (React Native) mobile app
-  - Capture → OCR (backend-based Tesseract) → preview metadata → convert to PDF → upload to Drive
+  - Capture → **Image Editing** → OCR (backend-based Tesseract) → preview metadata → convert to PDF → upload to Drive
   - Uses Firebase Auth and Firestore (client)
+  - **Image Editing**: Built-in editing tools for crop, rotate, brightness, contrast, and filters
   - **PDF Conversion**: Images are converted to PDF using `expo-print` before upload
 - Backend: FastAPI (Python)
   - Endpoint `/analyze` parses OCR text, classifies doc type, extracts fields, and suggests title/folder
@@ -27,7 +28,8 @@ This repository tracks the planning for an MVP that lets users snap a document, 
 - docs/specs.md: End‑to‑end MVP plan and data contracts
 - docs/frontend-spec.md: App flow, packages, data contract usage, and structure
 - docs/backend-spec.md: Endpoints, models, extraction rules, and structure
- - docs/firebase-setup.md: Step-by-step Firebase project setup for the prototype
+- docs/firebase-setup.md: Step-by-step Firebase project setup for the prototype
+- docs/IMAGE_EDITING.md: Comprehensive documentation for image editing features
 
 ## Repository Layout
 - frontend/ — Expo app (scaffolded)
@@ -80,28 +82,14 @@ This repository tracks the planning for an MVP that lets users snap a document, 
     - Proper auth: sign in via the app's Firebase email/password screen (ensure `frontend/.env` has Firebase web config). The app will include your Firebase ID token automatically.
     - If you prefer Google Sign‑In, wire it to Firebase: exchange the Google token for a Firebase credential and call `signInWithCredential`, then the app will have a Firebase ID token.
 
-- **Empty/Corrupt PDFs after upload:**
-  - **Root Cause**: expo-print cannot access local file URIs directly in HTML `<img>` tags
-  - **Solution**: Convert images to base64 before embedding in HTML for PDF generation
-  - Implementation: `generatePdfFromImage()` in `frontend/src/services/drive.js` now:
-    1. Uses `manipulateAsync` to convert image to base64 with optimal compression
-    2. Embeds base64 data URI in HTML: `<img src="data:image/jpeg;base64,...">`
-    3. Calls `printToFileAsync()` to generate PDF from HTML
+- **Bloated or blank PDFs after upload:**
+  - **Root Cause**: if captures bypass the compression helper, `pdf-lib` receives huge JPEGs and the resulting PDF can exceed Drive/API limits.
+  - **Solution**: Always run captures through `generatePdfFromImages()` in `frontend/src/services/drive.js`; it iteratively downsizes each page to ~350 KB and embeds the JPEGs directly via `pdf-lib`, adding the scan-style frame/overlay before handing the file to `/process-document`.
 
 - **expo-file-system API errors:**
-  - **Error**: `Cannot read property 'Base64' of undefined` or `EncodingType is undefined`
-  - **Cause**: Attempting to use `FileSystem.EncodingType.Base64` when enum isn't exported
-  - **Solution**: Use string literal `encoding: 'base64'` instead
-
-  - **Error**: `Method readAsStringAsync is deprecated`
-  - **Cause**: expo-file-system v54+ has a new API structure
-  - **Solution**: Use the new `File` class API:
-    ```javascript
-    import { File } from 'expo-file-system';
-    const file = new File(uri);
-    const base64Data = await file.base64();
-    ```
-  - **Legacy Option**: Import from `'expo-file-system/legacy'` to use old API (not recommended)
+  - **Error**: Deprecation warnings around `writeAsStringAsync` / `readAsStringAsync`.
+  - **Cause**: Expo v54 nudges apps to the new File API.
+  - **Solution**: The PDF helper now imports from `expo-file-system/legacy`, which keeps the existing read/write helpers without console noise. Follow that pattern or migrate the entire flow to the new File API in one shot.
 
 ## API Snapshot
 - POST `/ocr` → performs OCR on uploaded image, returns `{ text }`

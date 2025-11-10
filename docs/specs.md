@@ -116,11 +116,14 @@
 
 **UI Flow**
 
-1. **CameraScreen** → capture, crop, enhance
-2. **ProcessingScreen** → ML Kit OCR → call `/analyze`
-3. **ConfirmScreen** → show type/title/date → allow edits
-4. **UploadScreen** → create PDF → upload to Drive
-5. **DoneScreen** → success + open file link
+1. **CameraScreen** → capture (camera-only), enforce 5-page cap, show live thumbnails
+2. **PageReviewScreen** → preview every page, reorder, delete, or add more before committing
+3. **ProcessingScreen** → stitch images into a multi-page PDF and call `/process-document`
+4. **ConfirmScreen** → show AI title/category/year/page count → allow edits + folder overrides
+5. **UploadScreen** → send confirmed PDF to `/process-document` for Drive upload + metadata
+6. **Done/Home** → success + open file link, reset capture state
+
+Every capture is converted to PDF locally via `generatePdfFromImages`, ensuring the backend always receives `data:application/pdf;base64,...` even for multi-page documents.
 
 ---
 

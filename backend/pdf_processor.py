@@ -7,6 +7,7 @@ to analyze PDF documents and generate titles and categories.
 
 import io
 import os
+from datetime import datetime
 from typing import Dict
 import logging
 
@@ -46,10 +47,16 @@ def process_pdf_with_gemini(pdf_bytes: bytes) -> Dict[str, any]:
         prompt = """Analyze this PDF document and provide:
 1. A concise, descriptive title (max 80 characters) that captures the main purpose of the document
 2. A category from this list: invoices, receipts, contracts, insurance, tax, medical, school, id, personal, business, legal, financial, other
+3. The most relevant year for organizing this document (4-digit year, e.g., 2023)
+   - For invoices/receipts: use the document date
+   - For contracts: use the effective/start date
+   - For tax documents: use the tax year
+   - If no clear year exists, respond with "YEAR: null"
 
 Format your response as:
 TITLE: [your title here]
-CATEGORY: [category name in lowercase]"""
+CATEGORY: [category name in lowercase]
+YEAR: [4-digit year or null]"""
 
         # Upload PDF to Gemini
         pdf_file = genai.upload_file(io.BytesIO(pdf_bytes), mime_type='application/pdf')
@@ -86,6 +93,7 @@ CATEGORY: [category name in lowercase]"""
 
         title = None
         category = None
+        year = None
 
         for line in response_text.split('\n'):
             line = line.strip()
@@ -93,12 +101,23 @@ CATEGORY: [category name in lowercase]"""
                 title = line.replace('TITLE:', '').strip()
             elif line.startswith('CATEGORY:'):
                 category = line.replace('CATEGORY:', '').strip().lower()
+            elif line.startswith('YEAR:'):
+                year_str = line.replace('YEAR:', '').strip()
+                if year_str.lower() != 'null':
+                    try:
+                        year = int(year_str)
+                    except ValueError:
+                        logger.warning(f"Could not parse year from: {year_str}")
+                        year = None
 
         # Fallback if parsing fails
         if not title:
             title = "Untitled Document"
         if not category:
             category = "other"
+        if not year:
+            year = datetime.now().year
+            logger.info(f"No year detected, using current year: {year}")
 
         # Ensure title is not too long
         if len(title) > 80:
@@ -109,6 +128,7 @@ CATEGORY: [category name in lowercase]"""
         return {
             'title': title,
             'category': category,
+            'year': year,
             'input_tokens': input_tokens,
             'output_tokens': output_tokens,
             'estimated_cost': estimated_cost

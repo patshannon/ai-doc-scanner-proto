@@ -9,8 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 import auth
+import drive
+import folder_matcher
 import pdf_processor
 from models import (
+    FolderInfo,
     ProcessDocumentRequest,
     ProcessDocumentResponse,
 )
@@ -77,8 +80,9 @@ def process_document(
     Process a PDF document:
     1. Use Gemini Vision to analyze the PDF
     2. Generate title and category
-    
-    Returns title, category, and token usage info.
+    3. Upload to Google Drive (if access token provided)
+
+    Returns title, category, token usage info, and Drive info.
     """
     try:
         import base64
@@ -98,15 +102,123 @@ def process_document(
 
         pdf_bytes = base64.b64decode(parts[1])
 
-        # Process PDF with Gemini Vision
-        result = pdf_processor.process_pdf_with_gemini(pdf_bytes)
+        # Use user-provided values if available, otherwise analyze with Gemini
+        if request.title and request.category and request.year:
+            # User already edited values - skip re-analysis
+            result = {
+                'title': request.title,
+                'category': request.category,
+                'year': request.year,
+                'input_tokens': 0,
+                'output_tokens': 0,
+                'estimated_cost': 0.0
+            }
+        else:
+            # Process PDF with Gemini Vision
+            result = pdf_processor.process_pdf_with_gemini(pdf_bytes)
+
+        # Upload to Google Drive if access token provided
+        drive_file_id = None
+        drive_url = None
+        suggested_parent_folder = None
+        suggested_parent_folder_id = None
+        available_parent_folders = None
+        final_folder_path = None
+
+        if request.googleAccessToken:
+            try:
+                # Scan user's Drive folders for smart organization
+                folder_structure = drive.scan_drive_folders(
+                    request.googleAccessToken,
+                    max_depth=2
+                )
+
+                # Get root-level folders for user selection
+                root_folders = [
+                    f for f in folder_structure.get('folders', [])
+                    if f.get('depth') == 0
+                ]
+                available_parent_folders = [
+                    FolderInfo(
+                        id=f['id'],
+                        name=f['name'],
+                        path=f['path']
+                    )
+                    for f in root_folders
+                ]
+
+                # Determine which parent folder to use
+                category_capitalized = result['category'].capitalize()
+                parent_folder_to_use = None
+
+                if request.selectedParentFolderId:
+                    # User manually selected a parent folder
+                    selected_folder = next(
+                        (f for f in root_folders if f['id'] == request.selectedParentFolderId),
+                        None
+                    )
+                    if selected_folder:
+                        parent_folder_to_use = {
+                            'folder_id': selected_folder['id'],
+                            'folder_name': selected_folder['name']
+                        }
+                        suggested_parent_folder = selected_folder['name']
+                        suggested_parent_folder_id = selected_folder['id']
+                else:
+                    # Use AI to suggest best parent folder
+                    parent_folder_to_use = folder_matcher.suggest_parent_folder(
+                        document_category=result['category'],
+                        document_title=result['title'],
+                        folder_structure=folder_structure
+                    )
+                    if parent_folder_to_use:
+                        suggested_parent_folder = parent_folder_to_use['folder_name']
+                        suggested_parent_folder_id = parent_folder_to_use['folder_id']
+
+                # Build folder path
+                if parent_folder_to_use:
+                    # ParentFolder/Category/Year
+                    folder_path = f"{parent_folder_to_use['folder_name']}/{category_capitalized}/{result['year']}"
+                else:
+                    # Category/Year (root)
+                    folder_path = f"{category_capitalized}/{result['year']}"
+
+                final_folder_path = folder_path
+
+                # Only upload if skipUpload is false
+                if not request.skipUpload:
+                    # Ensure folder path exists
+                    folder_id = drive.ensure_folder_path(
+                        folder_path,
+                        request.googleAccessToken
+                    )
+
+                    # Upload PDF with AI-generated title
+                    filename = f"{result['title']}.pdf"
+                    drive_file_id, drive_url = drive.upload_file(
+                        file_data_uri=request.pdfData,
+                        filename=filename,
+                        folder_id=folder_id,
+                        mime_type="application/pdf",
+                        access_token=request.googleAccessToken
+                    )
+            except drive.DriveError as drive_exc:
+                # Log the error but don't fail the request
+                print(f"Drive upload failed: {drive_exc}")
 
         return ProcessDocumentResponse(
             title=result['title'],
             category=result['category'],
+            year=result['year'],
             inputTokens=result['input_tokens'],
             outputTokens=result['output_tokens'],
-            estimatedCost=result['estimated_cost']
+            estimatedCost=result['estimated_cost'],
+            driveFileId=drive_file_id,
+            driveUrl=drive_url,
+            suggestedParentFolder=suggested_parent_folder,
+            suggestedParentFolderId=suggested_parent_folder_id,
+            availableParentFolders=available_parent_folders,
+            finalFolderPath=final_folder_path
         )
 
     except HTTPException:
