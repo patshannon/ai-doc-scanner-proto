@@ -15,9 +15,8 @@ async function getIdTokenSafe() {
   }
 }
 
-export async function processDocument(pdfDataUri, googleAccessToken, skipUpload = false, selectedParentFolderId = null, userEdits = null) {
+export async function analyzeDocument(pdfDataUri, googleAccessToken, selectedParentFolderId = null) {
   if (!API_BASE || USE_MOCKS) {
-    // Mock response when no backend configured yet.
     return Promise.resolve({
       title: '2025-10-26_Invoice_Acorn-Design_#8123',
       category: 'invoices',
@@ -28,7 +27,7 @@ export async function processDocument(pdfDataUri, googleAccessToken, skipUpload 
       suggestedParentFolder: null,
       suggestedParentFolderId: null,
       availableParentFolders: [],
-      finalFolderPath: 'Invoices/2024/'
+      finalFolderPath: 'Invoices/2024'
     });
   }
 
@@ -44,16 +43,8 @@ export async function processDocument(pdfDataUri, googleAccessToken, skipUpload 
   if (googleAccessToken) {
     body.googleAccessToken = googleAccessToken;
   }
-  if (skipUpload) {
-    body.skipUpload = skipUpload;
-  }
   if (selectedParentFolderId) {
     body.selectedParentFolderId = selectedParentFolderId;
-  }
-  if (userEdits) {
-    if (userEdits.title) body.title = userEdits.title;
-    if (userEdits.category) body.category = userEdits.category;
-    if (userEdits.year) body.year = userEdits.year;
   }
 
   const res = await fetch(`${API_BASE}/process-document`, {
@@ -63,7 +54,56 @@ export async function processDocument(pdfDataUri, googleAccessToken, skipUpload 
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Process document failed: ${res.status} ${text}`);
+    throw new Error(`Analyze document failed: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+export async function uploadDocument({
+  pdfDataUri,
+  googleAccessToken,
+  title,
+  category,
+  year,
+  selectedParentFolderId = null
+}) {
+  if (!API_BASE || USE_MOCKS) {
+    return Promise.resolve({
+      driveFileId: 'mock-file-id-123',
+      driveUrl: 'https://drive.google.com/file/d/mock-file-id-123/view',
+      finalFolderPath: `${category}/${year}`
+    });
+  }
+
+  const idToken = await getIdTokenSafe();
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (idToken) {
+    headers.Authorization = `Bearer ${idToken}`;
+  }
+
+  const body = {
+    pdfData: pdfDataUri,
+    title,
+    category,
+    year
+  };
+  if (googleAccessToken) {
+    body.googleAccessToken = googleAccessToken;
+  }
+  if (selectedParentFolderId) {
+    body.selectedParentFolderId = selectedParentFolderId;
+  }
+
+  const res = await fetch(`${API_BASE}/upload-document`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Upload document failed: ${res.status} ${text}`);
   }
   return res.json();
 }

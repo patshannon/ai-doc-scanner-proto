@@ -1,8 +1,8 @@
 # Backend Agent Guide
 
 ## Scope & Priorities
-- Maintain the FastAPI `/process-document` pipeline that turns base64 PDFs into Drive uploads with Gemini-generated metadata
-- Own Gemini 2.0 Flash integration, PyPDF2 extraction, Google Drive file/folder orchestration, and Firebase auth verification
+- Maintain the FastAPI `/process-document` (analysis) and `/upload-document` (Drive upload) endpoints that work on base64 PDFs with Gemini-generated metadata
+- Own Gemini 2.0 Flash integration, PDF ingestion pipeline, Google Drive file/folder orchestration, and Firebase auth verification
 - Keep `PROCESS_DOCUMENT_API.md` authoritative and aligned with `docs/backend-spec.md` + `docs/specs.md`
 
 ## Key Files & Modules
@@ -21,11 +21,11 @@ pip install -r requirements.txt
 uvicorn app:app --reload
 ```
 - Health check: `curl http://localhost:8000/healthz`
-- Manual flow: POST `/process-document` with `pdfData` (`data:application/pdf;base64,...`) + `Authorization: Bearer <firebase-id-token>`; include `googleAccessToken` when testing user-owned Drive uploads
+- Manual flow: POST `/process-document` with `pdfData` (`data:application/pdf;base64,...`) + `Authorization: Bearer <firebase-id-token>` to retrieve metadata, then POST `/upload-document` with the confirmed fields (and optional `googleAccessToken`) to verify the Drive upload path.
 
 ## Implementation Guidelines
 - Accept only PDF data URIs; validate mime prefix and enforce size ceilings (~50 MB)
-- Use PyPDF2 for text extraction; handle empty strings (image-only PDFs) gracefully and still call Gemini with fallbacks (filename hints, heuristics)
+- Feed uploaded PDFs directly to Gemini; handle image-only docs gracefully and consider adding OCR fallbacks when needed
 - Gemini prompts should cap titles at 80 chars and map categories to the allowed list (Invoice/Receipt/Contract/Insurance/Tax/Medical/School/ID/Personal/Business/Legal/Financial/Other)
 - Organize Drive uploads under `Documents/{Category}/{Year}/{Sanitized-Title}.pdf`; sanitize characters for safe Drive paths
 - Keep functions small and pure; share helpers via `backend/app/services/` if logic grows

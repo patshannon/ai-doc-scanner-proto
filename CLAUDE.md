@@ -74,15 +74,13 @@ EXPO_PUBLIC_USE_MOCKS=false
 ### Current Workflow (PDF-First Architecture)
 
 1. **Frontend captures image** → converts to PDF using `expo-print`
-2. **Frontend sends PDF** to `/process-document` endpoint (single API call)
-3. **Backend extracts text** from PDF using PyPDF2
-4. **Gemini AI generates** title and category from extracted text
-5. **Backend uploads** to Google Drive with folder organization: `Documents/{Category}/{Year}/{Title}.pdf`
-6. **Backend returns** metadata (title, category, Drive link, token usage)
+2. **Frontend sends PDF** to `/process-document` (analysis) and later `/upload-document`
+3. **Backend passes the PDF bytes** directly to Gemini 2.5 Flash for title/category generation
+4. **Backend uploads** to Google Drive with folder organization: `Documents/{Category}/{Year}/{Title}.pdf`
+5. **Backend returns** metadata (title, category, Drive link, token usage)
 
 **Key Design Decision:** All documents are converted to PDF before backend processing for:
 - Unified processing pipeline (backend only handles PDFs)
-- Better text extraction from native PDFs
 - Consistent Drive storage format
 - Simpler codebase maintenance
 
@@ -90,7 +88,7 @@ EXPO_PUBLIC_USE_MOCKS=false
 
 **Backend** (`backend/`):
 - `app.py` - FastAPI application with `/process-document` endpoint
-- `pdf_processor.py` - PDF text extraction + Gemini AI analysis
+- `pdf_processor.py` - Gemini AI orchestration for PDF analysis
 - `drive.py` - Google Drive folder management and file uploads
 - `auth.py` - Firebase ID token verification
 - `models.py` - Pydantic request/response schemas
@@ -106,9 +104,8 @@ The AI classifies documents into: Invoice, Receipt, Contract, Insurance, Tax, Me
 ### API Endpoints
 
 - `GET /healthz` - Health check
-- `POST /process-document` - Main endpoint: accepts PDF, returns AI-generated title/category + Drive upload info
-  - Request: `{ pdfData: "data:application/pdf;base64,...", googleAccessToken?: "..." }`
-  - Response: `{ title, category, inputTokens, outputTokens, estimatedCost, driveFileId?, driveUrl? }`
+- `POST /process-document` - Analyze a PDF and return Gemini-generated metadata + folder suggestions
+- `POST /upload-document` - Upload the confirmed PDF to Drive after the user approves the metadata
 
 See `backend/PROCESS_DOCUMENT_API.md` for detailed API documentation.
 
@@ -153,9 +150,9 @@ If you adopt the new API, convert everything to `File`/`Directory`. Otherwise ke
 - **Solution:** Convert images to base64 before embedding in HTML for PDF generation
 
 ### Image-Based PDFs (No Text Layer)
-- **Limitation:** PyPDF2 cannot extract text from image-only PDFs
-- **Current Behavior:** Gemini AI must work with minimal/no text (may generate generic titles)
-- **Future Enhancement:** Add OCR preprocessing (Tesseract/Vision API) for image-based PDFs
+- **Limitation:** Gemini Vision accuracy drops when PDFs have no embedded text layer
+- **Current Behavior:** AI still attempts to infer structure directly from page pixels, which can yield generic titles
+- **Future Enhancement:** Add OCR preprocessing (Tesseract/Vision API) so the backend can supply supplemental text to Gemini
 
 ### 401 Errors on `/process-document`
 - Backend requires Firebase ID token (not Google OAuth token)
@@ -210,9 +207,8 @@ No automated tests for this prototype. Manual testing:
 
 **Commit c622c65 (Image-to-PDF Workflow Refactor):**
 - Rebuilt from OCR-only to Gemini AI pipeline
-- Replaced Tesseract OCR with PyPDF2 text extraction
-- Replaced heuristic rules with Gemini 2.0 Flash AI classification
-- Changed from 3-step API flow (`/ocr` → `/analyze` → `/upload`) to single `/process-document` endpoint
+- Replaced Tesseract OCR + heuristics with direct Gemini 2.0 Flash PDF analysis
+- Changed from 3-step API flow (`/ocr` → `/analyze` → `/upload`) to the streamlined `/process-document` flow
 - Added automatic Google Drive folder organization
 - Added token usage tracking and cost estimation
 

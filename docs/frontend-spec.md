@@ -1,12 +1,14 @@
 # Frontend Spec — Expo React Native
 
 ## Scope & Goals
-- Capture a document image, run on-device OCR (Google ML Kit), suggest metadata (via backend), let user confirm, then upload a PDF to Google Drive and persist an index in Firestore.
+- Capture a document image, run on-device OCR (Google ML Kit), suggest metadata (via backend), let user confirm, then upload a PDF to Google Drive. (Searchable indexing is deferred out of scope for now.)
+
+> **Implementation note:** The working prototype now skips the ML Kit/OCR leg and instead compiles PDFs locally, calls `/process-document` for Gemini metadata, then `/upload-document` once the user confirms. The remainder of this spec reflects the earlier ML Kit plan.
 
 ## Tech Stack
 - Expo (React Native), plain JavaScript (no TypeScript)
 - Packages: `expo-camera`, `expo-image-manipulator`, `expo-print`
-- Firebase: `@react-native-firebase/app`, `auth`, `firestore`
+- Firebase: `@react-native-firebase/app`, `auth`
 - Networking: `fetch` or `axios`
 
 ## App Flow
@@ -49,18 +51,6 @@ Response
 ## Auth & Permissions
 - Google Sign-In → obtain Firebase ID token → send as `Authorization: Bearer <idToken>` on API requests.
 - Drive: request `https://www.googleapis.com/auth/drive.file`.
-- Firestore: enforce per-user read/write via rules.
-
-## Firestore Document (reference)
-```json
-{
-  "fileId":"drive-id","name":"2025-10-26_Invoice_...pdf","docType":"invoice","docDate":"2025-10-26",
-  "tags":["finance","invoice","acorn-design"],
-  "fields":{"invoiceNumber":"8123","vendor":"Acorn Design","total":543.2,"currency":"CAD"},
-  "textHash":"sha256(ocrTextNormalized)","confidence":0.84,
-  "createdAt":173,"updatedAt":173
-}
-```
 
 ## Local Dev
 - Env: `.env` with API base URL, Firebase config.

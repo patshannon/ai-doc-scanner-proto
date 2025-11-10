@@ -8,84 +8,109 @@ The `/process-document` endpoint provides a streamlined workflow for processing 
 
 1. **Frontend**: User takes a picture of a document
 2. **Frontend**: Convert the image to PDF format
-3. **Frontend**: Send PDF via POST request to `/process-document` endpoint
-4. **Backend**: Extract text from PDF
-5. **Backend**: Use Gemini 2.5 Flash to generate a relevant title and category
-6. **Backend**: Upload PDF to user's Google Drive with organized folder structure
-7. **Backend**: Return document metadata and Google Drive link
+3. **Frontend**: Send the PDF to `/process-document` for AI analysis (Gemini generates title/category/year + folder suggestions)
+4. **Frontend**: Shows the analysis result and allows edits (title/category/folder/year)
+5. **Frontend**: Calls `/upload-document` with the confirmed metadata
+6. **Backend**: Ensures the Drive folder path exists and uploads the PDF
+7. **Backend**: Returns Drive IDs/links for confirmation
 
 ## Endpoint Details
 
-### POST /process-document
+### POST /process-document — Analyze PDF (no upload)
 
-Process a PDF document and upload it to Google Drive.
+Used right after the PDF is created. Gemini analyzes the document and returns suggested metadata plus optional Drive folder insights if a Google access token is provided.
 
 #### Request
 
-**Headers:**
-- `Authorization: Bearer <firebase-id-token>` (required, unless `FIREBASE_SKIP_AUTH=1` for development)
+**Headers**
+- `Authorization: Bearer <firebase-id-token>` (required unless `FIREBASE_SKIP_AUTH=1`)
 - `Content-Type: application/json`
 
-**Body:**
+**Body**
 ```json
 {
   "pdfData": "data:application/pdf;base64,JVBERi0xLjQKJ...",
-  "googleAccessToken": "ya29.a0AfH6SMB..." // optional
+  "googleAccessToken": "ya29.a0AfH6SMB...",   // optional — enables Drive folder scan
+  "selectedParentFolderId": "root-folder-id"  // optional — preselect a root folder
 }
 ```
 
-**Parameters:**
-- `pdfData` (string, required): Base64-encoded PDF data URI
-  - Format: `data:application/pdf;base64,<base64-data>`
-  - Max size: 50MB
-- `googleAccessToken` (string, optional): User's Google OAuth access token
-  - If provided, uploads to user's personal Google Drive
-  - If not provided, falls back to service account (if configured)
-- The frontend now bundles up to 5 camera captures into a single multi-page PDF before calling this endpoint, so `pdfData` may represent multiple pages in sequence.
+**Key Parameters**
+- `pdfData` (required): Base64 data URI for the PDF. Must be `data:application/pdf;base64,...` and ≤ 50 MB.
+- `googleAccessToken` (optional): User’s Drive token with `drive.file` and `drive.metadata.readonly` scopes. When provided, the backend scans root folders and can suggest the best parent folder.
+- `selectedParentFolderId` (optional): If the frontend already knows which root folder to anchor under, pass the Drive folder ID so the backend can build the preview path accordingly.
 
 #### Response
 
-**Success (200):**
 ```json
 {
   "title": "Invoice for Web Development Services",
   "category": "Invoice",
-  "fileId": "1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u",
-  "webViewLink": "https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u/view",
-  "folderId": "1zY2xW3vU4tS5rQ6pO7nM8lK9jI0hG1f",
-  "extractedText": "INVOICE\nInvoice Number: INV-2024-001..."
+  "year": 2024,
+  "inputTokens": 812,
+  "outputTokens": 62,
+  "estimatedCost": 0.00028,
+  "suggestedParentFolder": "Finance",
+  "suggestedParentFolderId": "1zY2xW3vU4tS5rQ6",
+  "availableParentFolders": [
+    { "id": "1zY2xW3vU4tS5rQ6", "name": "Finance", "path": "Finance" },
+    { "id": "9pO7nM8lK9jI0hG1", "name": "Personal", "path": "Personal" }
+  ],
+  "finalFolderPath": "Finance/Invoice/2024"
 }
 ```
 
-**Response Fields:**
-- `title` (string): AI-generated document title (max 80 characters)
-- `category` (string): AI-determined category
-  - Possible values: Invoice, Receipt, Contract, Insurance, Tax, Medical, School, ID, Personal, Business, Legal, Financial, Other
-- `fileId` (string): Google Drive file ID
-- `webViewLink` (string): Direct link to view the file in Google Drive
-- `folderId` (string): Google Drive folder ID where file was uploaded
-- `extractedText` (string): First 500 characters of extracted text (for reference)
+Fields:
+- `title`, `category`, `year`: Gemini-generated metadata
+- `inputTokens`, `outputTokens`, `estimatedCost`: Usage metrics for transparency
+- `suggestedParentFolder{Id}`: AI suggestion for which root folder to use (when Drive token provided)
+- `availableParentFolders`: All root-level folders discovered (`FolderInfo` objects)
+- `finalFolderPath`: The string path that would be used if the upload happened now (falls back to `Category/Year` when no Drive token is supplied)
 
-**Error (400):**
+Errors mirror standard FastAPI responses (`400` invalid data URI, `401` auth issues, `502` Drive scan failures, `500` Gemini errors).
+
+---
+
+### POST /upload-document — Upload confirmed PDF
+
+Called after the user approves/edits the metadata. This endpoint ensures the folder path exists (optionally under a user-selected root folder) and uploads the PDF to Drive.
+
+#### Request
+
+**Headers**
+- Same as above (`Authorization` + `Content-Type`)
+
+**Body**
 ```json
 {
-  "detail": "Invalid data URI format"
+  "pdfData": "data:application/pdf;base64,JVBERi0xLjQKJ...",
+  "googleAccessToken": "ya29.a0AfH6SMB...",   // optional — defaults to service account when omitted
+  "title": "Invoice for Web Development Services",
+  "category": "Invoice",
+  "year": 2024,
+  "selectedParentFolderId": "1zY2xW3vU4tS5rQ6" // optional root folder choice
 }
 ```
 
-**Error (401):**
+**Key Parameters**
+- `title`, `category`, `year`: Required metadata coming from the confirmation screen
+- `selectedParentFolderId`: Root folder ID (from `availableParentFolders`) if the user chose a specific top-level folder
+
+#### Response
+
 ```json
 {
-  "detail": "Missing Authorization header"
+  "driveFileId": "1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u",
+  "driveUrl": "https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u/view",
+  "finalFolderPath": "Finance/Invoice/2024"
 }
 ```
 
-**Error (500):**
-```json
-{
-  "detail": "Document processing failed: <error-message>"
-}
-```
+Errors:
+- `400` invalid/missing fields
+- `401` missing/invalid Firebase token
+- `502` Drive ensure/upload failures
+- `500` unexpected server errors
 
 ## Folder Structure
 
@@ -208,7 +233,7 @@ import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { PDFDocument } from 'pdf-lib';
 
-async function processDocument() {
+async function processDocumentFlow() {
   // 1. Take a picture
   const result = await ImagePicker.launchCameraAsync({
     allowsEditing: true,
@@ -239,8 +264,8 @@ async function processDocument() {
 
   const pdfDataUri = `data:application/pdf;base64,${pdfBase64}`;
 
-  // 4. Send to backend
-  const response = await fetch('https://your-api.com/process-document', {
+  // 4. Analyze PDF (no upload yet)
+  const analysisResponse = await fetch('https://your-api.com/process-document', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -248,15 +273,33 @@ async function processDocument() {
     },
     body: JSON.stringify({
       pdfData: pdfDataUri,
-      googleAccessToken, // from Google Sign-In
+      googleAccessToken, // optional — enables folder suggestions
     }),
   });
 
-  const data = await response.json();
-  console.log('Document processed:', data);
-  console.log('Title:', data.title);
-  console.log('Category:', data.category);
-  console.log('Google Drive link:', data.webViewLink);
+  const analysis = await analysisResponse.json();
+  console.log('AI Title:', analysis.title);
+  console.log('AI Category:', analysis.category);
+
+  // 5. After user edits metadata, upload via the second endpoint
+  const uploadResponse = await fetch('https://your-api.com/upload-document', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+    body: JSON.stringify({
+      pdfData: pdfDataUri,
+      googleAccessToken,
+      title: finalTitle,                 // user-confirmed values
+      category: finalCategory,
+      year: finalYear,
+      selectedParentFolderId: chosenParentFolderId
+    }),
+  });
+
+  const upload = await uploadResponse.json();
+  console.log('Google Drive link:', upload.driveUrl);
 }
 ```
 
@@ -268,21 +311,24 @@ async function processDocument() {
 │  (React     │
 │   Native)   │
 └──────┬──────┘
-       │ POST /process-document
-       │ {pdfData, googleAccessToken}
+       │ POST /process-document (analysis)
+       │ {pdfData, googleAccessToken?}
+       │
+       │ ← user edits metadata →
+       │
+       │ POST /upload-document (final upload)
+       │ {pdfData, title, category, year, ...}
        ↓
 ┌─────────────┐
 │   FastAPI   │
 │   Backend   │
 └──────┬──────┘
        │
-       ├─────→ Extract text (PyPDF2)
+       ├─────→ Analyze PDF (Gemini 2.5 Flash)
        │
-       ├─────→ Generate title/category (Gemini 2.5 Flash)
+       ├─────→ Suggest / create folder structure
        │
-       ├─────→ Create folder (Google Drive API)
-       │
-       └─────→ Upload PDF (Google Drive API)
+       └─────→ Upload PDF to Drive
                         │
                         ↓
                 ┌───────────────┐
@@ -305,16 +351,16 @@ async function processDocument() {
 6. Backend uploads image to Google Drive
 
 ### New Workflow (Recommended)
-1. Frontend converts image to PDF locally
-2. Frontend sends PDF to `/process-document` endpoint
-3. Backend extracts text, uses AI for classification, and uploads to Google Drive in one step
+1. Frontend converts image(s) to PDF locally
+2. Frontend calls `/process-document` to get AI-generated metadata + folder suggestions
+3. User tweaks metadata/folder choice if needed
+4. Frontend calls `/upload-document` to persist the final PDF + metadata to Drive
 
 **Benefits:**
-- ✅ Single API call instead of three
-- ✅ AI-powered title and category generation (more accurate)
-- ✅ PDFs are better for document archival than images
-- ✅ Simplified frontend code
-- ✅ Automatic folder organization
+- ✅ Still a single processing pipeline for PDFs
+- ✅ AI-powered title/category generation
+- ✅ Clear separation between “preview” and “upload” for better UX
+- ✅ Automatic folder organization with optional Drive scans
 
 ## Troubleshooting
 
@@ -325,9 +371,9 @@ Make sure you've created a `.env` file with your Gemini API key.
 - If using user OAuth: Make sure the `googleAccessToken` is valid and has the correct scopes
 - If using service account: Make sure `GOOGLE_APPLICATION_CREDENTIALS` points to a valid service account JSON file
 
-### "PDF text extraction failed"
-- Ensure the PDF is not corrupted
-- Some PDFs (especially scanned documents) might not have extractable text. Consider using OCR first if needed.
+### "PDF analysis failed"
+- Ensure the PDF is not corrupted and is encoded as `data:application/pdf;base64,...`
+- Gemini Vision can struggle with extremely low-resolution scans; consider improving capture quality or adding an OCR fallback if failures persist
 
 ### "Connection refused to localhost:8000"
 Make sure the backend server is running:

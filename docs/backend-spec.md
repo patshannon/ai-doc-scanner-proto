@@ -3,6 +3,8 @@
 ## Scope & Responsibilities
 - Stateless API that classifies OCR text, extracts fields, and returns suggested metadata. Verifies Firebase ID tokens. Deployable to Cloud Run.
 
+> **Implementation note (Nov 2024):** The production prototype now exposes `/process-document` (analysis) and `/upload-document` (final upload) endpoints that operate directly on PDF bytes via Gemini 2.5 Flash. The `/analyze` endpoint described below reflects the original design and is being superseded.
+
 ## Endpoints
 - POST `/analyze`: accepts OCR text and returns `{ docType, title, date, tags, fields, folderPath, confidence }`.
 - POST `/ensureFolderPath` (stub): returns or creates Drive folder path (V2-friendly).
@@ -40,7 +42,6 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 firebase-admin==6.6.0
 google-api-python-client==2.146.0
-google-cloud-firestore==2.17.0
 python-dateutil==2.9.0.post0
 rapidfuzz==3.9.7
 ```
@@ -48,7 +49,7 @@ rapidfuzz==3.9.7
 ## Local Development
 - Create venv and install: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
 - Run: `uvicorn app:app --reload`.
-- Env: `FIREBASE_PROJECT_ID`, optional GCP creds for Drive/Firestore when integrating.
+- Env: `FIREBASE_PROJECT_ID`, optional GCP creds for Drive when integrating.
 
 ## Deployment (Cloud Run)
 ```

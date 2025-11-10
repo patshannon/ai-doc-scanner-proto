@@ -16,6 +16,8 @@ from models import (
     FolderInfo,
     ProcessDocumentRequest,
     ProcessDocumentResponse,
+    UploadDocumentRequest,
+    UploadDocumentResponse,
 )
 
 app = FastAPI(title="Document Analyzer API", version="0.1.0")
@@ -71,162 +73,209 @@ def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+def _decode_pdf_bytes(data_uri: str) -> bytes:
+    import base64
+
+    if not data_uri.startswith("data:application/pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid data URI format - expected PDF"
+        )
+
+    parts = data_uri.split(",", 1)
+    if len(parts) != 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid data URI: missing base64 data"
+        )
+
+    return base64.b64decode(parts[1])
+
+
+def _build_folder_suggestion(
+    access_token: Optional[str],
+    category: str,
+    year: int,
+    document_title: str,
+    selected_parent_id: Optional[str] = None,
+):
+    if not access_token:
+        default_path = f"{category.capitalize()}/{year}"
+        return None, None, None, default_path
+
+    folder_structure = drive.scan_drive_folders(access_token, max_depth=2)
+    root_folders = [
+        f for f in folder_structure.get("folders", []) if f.get("depth") == 0
+    ]
+    available_parent_folders = [
+        FolderInfo(id=f["id"], name=f["name"], path=f["path"]) for f in root_folders
+    ]
+
+    category_capitalized = category.capitalize()
+    parent_folder_to_use = None
+    suggested_parent_folder = None
+    suggested_parent_folder_id = None
+
+    if selected_parent_id:
+        selected_folder = next(
+            (f for f in root_folders if f["id"] == selected_parent_id),
+            None,
+        )
+        if selected_folder:
+            parent_folder_to_use = {
+                "folder_id": selected_folder["id"],
+                "folder_name": selected_folder["name"],
+            }
+            suggested_parent_folder = selected_folder["name"]
+            suggested_parent_folder_id = selected_folder["id"]
+    else:
+        parent_folder_to_use = folder_matcher.suggest_parent_folder(
+            document_category=category,
+            document_title=document_title,
+            folder_structure=folder_structure,
+        )
+        if parent_folder_to_use:
+            suggested_parent_folder = parent_folder_to_use["folder_name"]
+            suggested_parent_folder_id = parent_folder_to_use["folder_id"]
+
+    if parent_folder_to_use:
+        folder_path = (
+            f"{parent_folder_to_use['folder_name']}/"
+            f"{category_capitalized}/{year}"
+        )
+    else:
+        folder_path = f"{category_capitalized}/{year}"
+
+    return (
+        available_parent_folders,
+        suggested_parent_folder,
+        suggested_parent_folder_id,
+        folder_path,
+    )
+
+
 @app.post("/process-document", response_model=ProcessDocumentResponse)
 def process_document(
     request: ProcessDocumentRequest,
     _: Dict[str, Any] = Depends(require_user),
 ) -> ProcessDocumentResponse:
     """
-    Process a PDF document:
-    1. Use Gemini Vision to analyze the PDF
-    2. Generate title and category
-    3. Upload to Google Drive (if access token provided)
+    Analyze a PDF document with Gemini and suggest metadata/foldering.
 
-    Returns title, category, token usage info, and Drive info.
+    Uploads are handled separately via /upload-document.
     """
     try:
-        import base64
+        pdf_bytes = _decode_pdf_bytes(request.pdfData)
+        result = pdf_processor.process_pdf_with_gemini(pdf_bytes)
 
-        if not request.pdfData.startswith("data:application/pdf"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid data URI format - expected PDF"
-            )
-
-        parts = request.pdfData.split(",", 1)
-        if len(parts) != 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid data URI: missing base64 data"
-            )
-
-        pdf_bytes = base64.b64decode(parts[1])
-
-        # Use user-provided values if available, otherwise analyze with Gemini
-        if request.title and request.category and request.year:
-            # User already edited values - skip re-analysis
-            result = {
-                'title': request.title,
-                'category': request.category,
-                'year': request.year,
-                'input_tokens': 0,
-                'output_tokens': 0,
-                'estimated_cost': 0.0
-            }
-        else:
-            # Process PDF with Gemini Vision
-            result = pdf_processor.process_pdf_with_gemini(pdf_bytes)
-
-        # Upload to Google Drive if access token provided
-        drive_file_id = None
-        drive_url = None
-        suggested_parent_folder = None
-        suggested_parent_folder_id = None
-        available_parent_folders = None
-        final_folder_path = None
-
-        if request.googleAccessToken:
-            try:
-                # Scan user's Drive folders for smart organization
-                folder_structure = drive.scan_drive_folders(
-                    request.googleAccessToken,
-                    max_depth=2
-                )
-
-                # Get root-level folders for user selection
-                root_folders = [
-                    f for f in folder_structure.get('folders', [])
-                    if f.get('depth') == 0
-                ]
-                available_parent_folders = [
-                    FolderInfo(
-                        id=f['id'],
-                        name=f['name'],
-                        path=f['path']
-                    )
-                    for f in root_folders
-                ]
-
-                # Determine which parent folder to use
-                category_capitalized = result['category'].capitalize()
-                parent_folder_to_use = None
-
-                if request.selectedParentFolderId:
-                    # User manually selected a parent folder
-                    selected_folder = next(
-                        (f for f in root_folders if f['id'] == request.selectedParentFolderId),
-                        None
-                    )
-                    if selected_folder:
-                        parent_folder_to_use = {
-                            'folder_id': selected_folder['id'],
-                            'folder_name': selected_folder['name']
-                        }
-                        suggested_parent_folder = selected_folder['name']
-                        suggested_parent_folder_id = selected_folder['id']
-                else:
-                    # Use AI to suggest best parent folder
-                    parent_folder_to_use = folder_matcher.suggest_parent_folder(
-                        document_category=result['category'],
-                        document_title=result['title'],
-                        folder_structure=folder_structure
-                    )
-                    if parent_folder_to_use:
-                        suggested_parent_folder = parent_folder_to_use['folder_name']
-                        suggested_parent_folder_id = parent_folder_to_use['folder_id']
-
-                # Build folder path
-                if parent_folder_to_use:
-                    # ParentFolder/Category/Year
-                    folder_path = f"{parent_folder_to_use['folder_name']}/{category_capitalized}/{result['year']}"
-                else:
-                    # Category/Year (root)
-                    folder_path = f"{category_capitalized}/{result['year']}"
-
-                final_folder_path = folder_path
-
-                # Only upload if skipUpload is false
-                if not request.skipUpload:
-                    # Ensure folder path exists
-                    folder_id = drive.ensure_folder_path(
-                        folder_path,
-                        request.googleAccessToken
-                    )
-
-                    # Upload PDF with AI-generated title
-                    filename = f"{result['title']}.pdf"
-                    drive_file_id, drive_url = drive.upload_file(
-                        file_data_uri=request.pdfData,
-                        filename=filename,
-                        folder_id=folder_id,
-                        mime_type="application/pdf",
-                        access_token=request.googleAccessToken
-                    )
-            except drive.DriveError as drive_exc:
-                # Log the error but don't fail the request
-                print(f"Drive upload failed: {drive_exc}")
+        (
+            available_parent_folders,
+            suggested_parent_folder,
+            suggested_parent_folder_id,
+            final_folder_path,
+        ) = _build_folder_suggestion(
+            access_token=request.googleAccessToken,
+            category=result["category"],
+            year=result["year"],
+            document_title=result["title"],
+            selected_parent_id=request.selectedParentFolderId,
+        )
 
         return ProcessDocumentResponse(
-            title=result['title'],
-            category=result['category'],
-            year=result['year'],
-            inputTokens=result['input_tokens'],
-            outputTokens=result['output_tokens'],
-            estimatedCost=result['estimated_cost'],
-            driveFileId=drive_file_id,
-            driveUrl=drive_url,
+            title=result["title"],
+            category=result["category"],
+            year=result["year"],
+            inputTokens=result["input_tokens"],
+            outputTokens=result["output_tokens"],
+            estimatedCost=result["estimated_cost"],
             suggestedParentFolder=suggested_parent_folder,
             suggestedParentFolderId=suggested_parent_folder_id,
             availableParentFolders=available_parent_folders,
-            finalFolderPath=final_folder_path
+            finalFolderPath=final_folder_path,
         )
 
+    except drive.DriveError as drive_exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Drive folder scan failed: {drive_exc}",
+        ) from drive_exc
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Document processing failed: {exc}",
+        ) from exc
+
+
+@app.post("/upload-document", response_model=UploadDocumentResponse)
+def upload_document(
+    request: UploadDocumentRequest,
+    _: Dict[str, Any] = Depends(require_user),
+) -> UploadDocumentResponse:
+    """
+    Upload the confirmed PDF to Google Drive using the supplied metadata.
+    """
+    try:
+        # Validate PDF payload
+        _decode_pdf_bytes(request.pdfData)
+
+        parent_folder_name = None
+
+        if request.googleAccessToken and request.selectedParentFolderId:
+            folder_structure = drive.scan_drive_folders(
+                request.googleAccessToken, max_depth=1
+            )
+            root_folders = [
+                f for f in folder_structure.get("folders", [])
+                if f.get("depth") == 0
+            ]
+            selected_folder = next(
+                (f for f in root_folders if f["id"] == request.selectedParentFolderId),
+                None,
+            )
+            if selected_folder:
+                parent_folder_name = selected_folder["name"]
+
+        category_capitalized = request.category.capitalize()
+        path_parts = []
+        if parent_folder_name:
+            path_parts.append(parent_folder_name)
+        path_parts.append(category_capitalized)
+        path_parts.append(str(request.year))
+        final_folder_path = "/".join(path_parts)
+
+        folder_id = drive.ensure_folder_path(
+            final_folder_path,
+            request.googleAccessToken,
+        )
+
+        filename = f"{request.title}.pdf"
+        drive_file_id, drive_url = drive.upload_file(
+            file_data_uri=request.pdfData,
+            filename=filename,
+            folder_id=folder_id,
+            mime_type="application/pdf",
+            access_token=request.googleAccessToken,
+        )
+
+        return UploadDocumentResponse(
+            driveFileId=drive_file_id,
+            driveUrl=drive_url,
+            finalFolderPath=final_folder_path,
+        )
+
+    except drive.DriveError as drive_exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Drive upload failed: {drive_exc}",
+        ) from drive_exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Document upload failed: {exc}",
         ) from exc
 
 

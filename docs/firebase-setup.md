@@ -2,6 +2,8 @@
 
 This guide walks you through creating a Firebase project and getting the minimum configuration needed for the prototype. Optional steps for Google Sign-In and Google Drive are included for later.
 
+> **Note:** Only Firebase Authentication is required right now. Firestore setup (steps 3 and 6) is optional/out of scope unless you specifically want to experiment with a future searchable index.
+
 ## 1) Create Firebase Project
 - Go to https://console.firebase.google.com → Add project.
 - Name it (e.g., doc-ai-proto). You can disable Google Analytics for now.
@@ -13,7 +15,7 @@ This guide walks you through creating a Firebase project and getting the minimum
   - Minimal for now: enable Email/Password or Anonymous for quick dev.
   - Optional later: enable Google (requires OAuth setup in Google Cloud Console; see step 7).
 
-## 3) Create Firestore Database
+## 3) (Optional) Create Firestore Database
 - Firebase Console → Build → Firestore Database → Create database.
 - Choose Production mode (recommended) or Test mode for quick dev.
 - Pick a region close to you.
@@ -36,7 +38,7 @@ This guide walks you through creating a Firebase project and getting the minimum
   - `EXPO_PUBLIC_API_BASE_URL=http://localhost:8000`
 - If left empty, the app uses mocked `/analyze` responses.
 
-## 6) Starter Firestore Rules (per-user docs)
+## 6) (Optional) Starter Firestore Rules (per-user docs)
 Use a per-user collection like `users/{uid}/docs/{docId}`. Example rules:
 
 ```

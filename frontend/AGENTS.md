@@ -1,7 +1,7 @@
 # Frontend Agent Guide
 
 ## Scope & Priorities
-- Expo React Native prototype that captures docs, converts every capture to PDF locally, and POSTs to `/process-document`
+- Expo React Native prototype that captures docs, converts every capture to PDF locally, POSTs to `/process-document` for analysis, then `/upload-document` for the final Drive upload
 - Handle Firebase auth (Google Sign-In) to obtain ID tokens + optional Drive OAuth token
 - Present Gemini-generated title/category suggestions for confirmation, then surface Drive links after upload
 

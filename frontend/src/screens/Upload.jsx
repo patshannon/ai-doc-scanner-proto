@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking, ActivityIndicator } from 'react-native';
-import { processDocument } from '../services/api.js';
+import { uploadDocument } from '../services/api.js';
 
 export default function UploadScreen({ analysis, googleAuth, onDone, onBack }) {
   const [uploading, setUploading] = useState(true);
@@ -24,13 +24,14 @@ export default function UploadScreen({ analysis, googleAuth, onDone, onBack }) {
           year: analysis.year
         };
 
-        const res = await processDocument(
-          analysis.pdfDataUri,
+        const res = await uploadDocument({
+          pdfDataUri: analysis.pdfDataUri,
           googleAccessToken,
-          false, // skipUpload = false (actually upload this time)
-          analysis.selectedParentFolderId,
-          userEdits
-        );
+          title: userEdits.title,
+          category: userEdits.category,
+          year: userEdits.year,
+          selectedParentFolderId: analysis.selectedParentFolderId
+        });
 
         if (mounted) {
           setUploadResult(res);

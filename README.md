@@ -1,6 +1,6 @@
 # AI Document Scanner — MVP Overview
 
-This repository tracks the planning for an MVP that lets users snap a document, auto-generate a useful title and metadata from on‑device OCR, and upload the file to Google Drive while saving a searchable index in Firestore.
+This repository tracks the planning for an MVP that lets users snap a document, auto-generate a useful title and metadata via Gemini, and upload the file to Google Drive.
 
 ## Current Status
 - Frontend scaffolded under `frontend/` per `docs/frontend-spec.md` with minimal prototype screens and service stubs.
@@ -14,15 +14,15 @@ This repository tracks the planning for an MVP that lets users snap a document, 
 
 ## Planned Architecture
 - Frontend: Expo (React Native) mobile app
-  - Capture → **Image Editing** → OCR (backend-based Tesseract) → preview metadata → convert to PDF → upload to Drive
-  - Uses Firebase Auth and Firestore (client)
+  - Capture → **Image Editing** → convert to PDF → call `/process-document` for Gemini metadata → user confirms → call `/upload-document`
+  - Uses Firebase Auth (Firestore indexing deferred/out of scope)
   - **Image Editing**: Built-in editing tools for crop, rotate, brightness, contrast, and filters
   - **PDF Conversion**: Images are converted to PDF using `expo-print` before upload
 - Backend: FastAPI (Python)
-  - Endpoint `/analyze` parses OCR text, classifies doc type, extracts fields, and suggests title/folder
-  - Endpoint `/upload` accepts both images and PDFs for Google Drive upload
+  - Endpoint `/process-document` ingests a PDF, feeds it to Gemini 2.5 Flash, and returns title/category/year plus folder suggestions
+  - Endpoint `/upload-document` ensures the Drive folder path exists and uploads the confirmed PDF
   - Verifies Firebase ID tokens
-- Services: Google Drive API (file upload), Firebase Auth, Firestore (metadata index)
+- Services: Google Drive API (file upload) and Firebase Auth
 
 ## Key Documents
 - docs/specs.md: End‑to‑end MVP plan and data contracts
@@ -40,10 +40,10 @@ This repository tracks the planning for an MVP that lets users snap a document, 
 - `cd frontend && npm install`
 - Copy `.env.example` to `.env` and update values. For local backend testing set `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` (or your LAN IP) and leave `EXPO_PUBLIC_USE_MOCKS=false` so the Processing screen calls the FastAPI service.
 - With Firebase config in place, the app shows an email/password sign-up & sign-in flow before entering the document pipeline.
-- **OCR Implementation:** The prototype uses backend-based OCR (Tesseract via Python) instead of on-device ML Kit:
+- **AI Metadata Preview:** Once a PDF is compiled, the app calls `/process-document` to have Gemini 2.5 Flash generate a title, category, and year.
   - Works immediately with Expo Go—no native builds required
-  - Camera captures image → frontend sends to backend → backend performs OCR → returns text
-  - For testing without a backend, set `EXPO_PUBLIC_USE_MOCKS=true` to use mock OCR data
+  - Camera captures → frontend builds PDF → backend analyzes PDF bytes directly (no intermediate OCR endpoint)
+  - For testing without a backend, set `EXPO_PUBLIC_USE_MOCKS=true` to use mock metadata
 - **PDF Conversion:** Captured images are automatically converted to PDF before upload:
   - Uses `expo-print` to generate PDFs from images
   - Images are embedded as base64 data in HTML, then converted to PDF
@@ -53,10 +53,6 @@ This repository tracks the planning for an MVP that lets users snap a document, 
 - Use the Camera screen's "Test Google OAuth" button to verify Drive access (`drive.file` scope) once you add Google client IDs to `.env`.
 
 ## Backend Quickstart (Prototype)
-- **Install Tesseract OCR engine** (required for image processing):
-  - macOS: `brew install tesseract`
-  - Ubuntu/Debian: `sudo apt-get install tesseract-ocr`
-  - Windows: Download installer from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
 - `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 - Copy `backend/.env.example` to `.env`. For local development, set `FIREBASE_SKIP_AUTH=1` to bypass Firebase checks until credentials are configured. When ready to integrate with Firebase, set `FIREBASE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS`.
 - **Google Drive Setup** (for file uploads):
@@ -70,11 +66,11 @@ This repository tracks the planning for an MVP that lets users snap a document, 
     2. Set `GOOGLE_APPLICATION_CREDENTIALS` in `.env` to the path of your credentials JSON file
     3. Files upload to a shared Drive or service account's Drive
 - Run `uvicorn app:app --reload` (default port 8000). The `/healthz` endpoint returns a simple status payload.
-- Manual check: POST `/ocr` with base64 image to test OCR, then POST `/analyze` with OCR text to verify doc type, title generation, and folder suggestions align with spec.
+- Manual check: POST `/process-document` with a PDF data URI to verify Gemini analysis, then POST `/upload-document` with the confirmed metadata to ensure Drive uploads succeed.
 
 ## Troubleshooting
 
-- **401 on `/analyze` from the app:**
+- **401 on `/process-document` or `/upload-document` from the app:**
   - The backend expects a Firebase ID token in `Authorization: Bearer <idToken>`.
   - Signing in with Google OAuth (Drive access token) is not the same as a Firebase ID token.
   - Fix options:
@@ -92,12 +88,10 @@ This repository tracks the planning for an MVP that lets users snap a document, 
   - **Solution**: The PDF helper now imports from `expo-file-system/legacy`, which keeps the existing read/write helpers without console noise. Follow that pattern or migrate the entire flow to the new File API in one shot.
 
 ## API Snapshot
-- POST `/ocr` → performs OCR on uploaded image, returns `{ text }`
-- POST `/analyze` → returns `{ docType, title, date, tags, fields, folderPath, confidence }`
-- POST `/upload` → uploads file to Google Drive, returns `{ fileId, webViewLink, folderId }`
-- POST `/ensureFolderPath` → ensures folder path exists in Drive, returns `{ folderPath, status }`
-- Request body includes OCR text, optional EXIF date, optional thumbnail, and locale
-- See `docs/backend-spec.md` for exact request/response shapes
+- POST `/process-document` → analyze a PDF with Gemini; returns `{ title, category, year, token usage, suggestedParentFolder, availableParentFolders }`
+- POST `/upload-document` → upload the confirmed PDF to Google Drive; returns `{ driveFileId, driveUrl, finalFolderPath }`
+- GET `/healthz` → health check
+- See `backend/PROCESS_DOCUMENT_API.md` for full request/response shapes
 
 ## Next Steps
 - Scaffold `frontend/` (Expo) and `backend/` (FastAPI) per the spec documents

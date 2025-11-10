@@ -2,12 +2,12 @@
 
 ## Mission Snapshot (2025-11-06)
 - **Phase:** Image-to-PDF conversion architecture implemented and wired to `/process-document`
-- ✅ PyPDF2 extraction, Gemini 2.0 Flash title/category generation, Google Drive + Firebase auth in place
+- ✅ Gemini 2.0 Flash title/category generation + Google Drive and Firebase auth in place
 - ✅ Frontend converts images to PDF (client-side via `img2pdf`-style flow) before hitting backend
 - 🔄 Outstanding: finish frontend wiring and perform manual `/process-document` end-to-end verification
 
 ## Current Focus
-- Run manual tests that start with PDF capture/creation → `/process-document` → Drive upload → metadata confirmation
+- Run manual tests that start with PDF capture/creation → `/process-document` (analysis) → `/upload-document` → Drive metadata confirmation
 - Validate Gemini-generated titles/categories against invoices, receipts, contracts, tax docs, and unknown types
 - Keep docs updated as surface changes (especially `PROCESS_DOCUMENT_API.md` and `docs/specs.md` excerpts)
 
@@ -34,7 +34,7 @@
 
 ## Testing & Validation
 - No automated tests; rely on manual flows for invoices/receipts/contracts/tax/unknowns, low-quality scans, multi-page PDFs, and non-English samples
-- Verify: extracted text sanity, Gemini classification accuracy, Drive folder hierarchy + permissions, graceful handling of corrupted PDFs
+- Verify: Gemini classification accuracy, Drive folder hierarchy + permissions, graceful handling of corrupted PDFs
 - Document manual test status in PR descriptions when possible
 
 ## Security & Configuration
@@ -44,7 +44,7 @@
 
 ## Architecture Decision — Image-to-PDF Pipeline
 - Convert every capture to PDF on the client → backend only ingests `data:application/pdf;base64,...`
-- PyPDF2 handles text extraction; Gemini infers title + category even if extraction is sparse
+- Gemini processes the uploaded PDF directly; future iterations may layer in OCR/text extraction if needed
 - Google Drive storage uses `Documents/{Category}/{Year}/{Sanitized-Title}.pdf`
 - Future: consider OCR fallback (Tesseract/Vision) when PDFs lack text layers
 

@@ -67,31 +67,53 @@ def test_process_document():
 
     # Prepare the request
     url = "http://localhost:8000/process-document"
-    payload = {
+    analyze_payload = {
         "pdfData": pdf_data_uri,
         "googleAccessToken": None  # Will use service account if configured
     }
 
-    print("\nSending request to /process-document endpoint...")
+    print("\nSending analysis request to /process-document endpoint...")
     print(f"URL: {url}")
 
     try:
         headers = {
             "Authorization": "Bearer test-token"
         }
-        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        response = requests.post(url, json=analyze_payload, headers=headers, timeout=120)
 
         print(f"\nResponse status code: {response.status_code}")
 
         if response.status_code == 200:
-            result = response.json()
-            print("\n✅ SUCCESS!")
+            analysis = response.json()
+            print("\n✅ ANALYSIS SUCCESS!")
             print("\nResponse data:")
-            print(json.dumps(result, indent=2))
-            print(f"\nTitle: {result.get('title')}")
-            print(f"Category: {result.get('category')}")
-            print(f"File ID: {result.get('fileId')}")
-            print(f"Web View Link: {result.get('webViewLink')}")
+            print(json.dumps(analysis, indent=2))
+            print(f"\nTitle: {analysis.get('title')}")
+            print(f"Category: {analysis.get('category')}")
+
+            upload_payload = {
+                "pdfData": pdf_data_uri,
+                "title": analysis.get("title") or "Test Document",
+                "category": analysis.get("category") or "other",
+                "year": analysis.get("year") or 2024
+            }
+
+            print("\nSending upload request to /upload-document endpoint...")
+            upload_response = requests.post(
+                "http://localhost:8000/upload-document",
+                json=upload_payload,
+                headers=headers,
+                timeout=120
+            )
+            print(f"Upload status code: {upload_response.status_code}")
+            if upload_response.status_code == 200:
+                upload_result = upload_response.json()
+                print("\n✅ UPLOAD SUCCESS!")
+                print(json.dumps(upload_result, indent=2))
+                print(f"Drive Link: {upload_result.get('driveUrl')}")
+            else:
+                print("\n❌ Upload failed")
+                print(upload_response.text)
         else:
             print("\n❌ ERROR!")
             print(f"Response: {response.text}")

@@ -17,11 +17,12 @@
   * **Title**
   * **Suggested folder path**
 * User confirms → App uploads to **Google Drive** with metadata.
-* Save structured document index in **Firestore** for search/filtering.
 
 ---
 
 ## 2. 🏗️ Architecture Overview
+
+> **Implementation update (Nov 2024):** The current prototype now converts captures to PDF on device, calls a new `/process-document` endpoint to let Gemini 2.5 Flash propose metadata, and only uploads after a user confirmation step via `/upload-document`. The older `/ocr` → `/analyze` → `/upload` plan described below was the original concept but has since been consolidated.
 
 ### **Client (Expo React Native)**
 
@@ -30,7 +31,6 @@
 * API call to `/analyze`
 * Confirm & edit generated metadata
 * Upload to Google Drive (`drive.file` scope)
-* Write Firestore document record
 
 ### **Backend (Python + FastAPI)**
 
@@ -42,7 +42,6 @@
 ### **Services**
 
 * **Firebase Auth** — Google Sign-In
-* **Firestore** — document metadata index
 * **Google Drive API** — upload & folder organization
 * **Google Cloud Run** — backend hosting
 
@@ -80,30 +79,6 @@
   "confidence": 0.84
 }
 ```
-
-### Firestore document structure
-
-```json
-{
-  "fileId": "drive-id",
-  "name": "2025-10-26_Invoice_Acorn-Design_#8123.pdf",
-  "docType": "invoice",
-  "docDate": "2025-10-26",
-  "tags": ["finance","invoice","acorn-design"],
-  "fields": {
-    "invoiceNumber": "8123",
-    "vendor": "Acorn Design",
-    "total": 543.20,
-    "currency": "CAD"
-  },
-  "textHash": "sha256(ocrTextNormalized)",
-  "confidence": 0.84,
-  "createdAt": 173,
-  "updatedAt": 173
-}
-```
-
----
 
 ## 4. 📱 Frontend — Expo React Native
 
@@ -344,7 +319,6 @@ gcloud run deploy doc-ai-python \
 * Backend verifies token via Firebase Admin SDK
 * Client uploads to Drive using scope:
   `https://www.googleapis.com/auth/drive.file`
-* Firestore rules: user can only write/read their own docs
 
 ---
 
@@ -362,7 +336,6 @@ gcloud run deploy doc-ai-python \
 ✅ OCR correctly extracts text from clear printed docs
 ✅ `/analyze` returns accurate doc type & sensible title
 ✅ Upload to Drive works and metadata saved
-✅ Firestore record created with same metadata
 ✅ Entire flow under 10 seconds for happy path
 ✅ No sensitive data exposure
 
@@ -375,7 +348,7 @@ gcloud run deploy doc-ai-python \
 | **Day 1** | Camera + OCR pipeline                     |
 | **Day 2** | `/analyze` backend + metadata generation  |
 | **Day 3** | Confirm UI + Drive upload                 |
-| **Day 4** | Firestore integration + cleanup + testing |
+| **Day 4** | Drive upload polish + cleanup + testing |
 
 ---
 
@@ -397,7 +370,6 @@ Before creating a new folder like `Documents/Invoices/2025`, check Drive for sim
 * Use `RapidFuzz` or small embedding model for string similarity
 * Suggest reuse if match score ≥ 85
 * Simple UX: “Use existing folder Finance/Invoices/2025?”
-* Cache folder list in Firestore per user
 
 ---
 
@@ -409,6 +381,6 @@ User can:
 2. See a generated title, type, and folder
 3. Confirm and upload to Drive
 4. Find it in Drive under the correct folder
-5. See it indexed in Firestore
+5. Access it in Google Drive under the correct folder
 
 All **without manual typing** in the happy path.

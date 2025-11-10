@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { generatePdfFromImages, convertPdfToDataUri } from '../services/drive.js';
-import { processDocument } from '../services/api.js';
+import { analyzeDocument } from '../services/api.js';
 
 export default function ProcessingScreen({ captures = [], googleAuth, onAnalyzed, onBack }) {
   const [status, setStatus] = useState('Preparing PDF');
@@ -32,7 +32,7 @@ export default function ProcessingScreen({ captures = [], googleAuth, onAnalyzed
         setStatus('Analyzing PDF with AI');
         const googleAccessToken = googleAuth?.accessToken || null;
         // Request analysis only; UploadScreen will send the final upload call.
-        const res = await processDocument(pdfDataUri, googleAccessToken, true);
+        const res = await analyzeDocument(pdfDataUri, googleAccessToken);
 
         if (!cancelled) {
           onAnalyzed({

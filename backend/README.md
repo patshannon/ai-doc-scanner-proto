@@ -4,16 +4,14 @@ A FastAPI-based backend service for processing PDF documents with AI-powered cat
 
 ## Overview
 
-This backend provides a single endpoint that handles the complete document processing workflow:
-1. Extracts text from PDF documents
-2. Uses Google's Gemini 2.5 Flash AI to generate relevant titles and categories
-3. Automatically uploads to Google Drive with organized folder structure
+This backend provides two endpoints that together handle the document workflow:
+1. `/process-document` analyzes PDFs with Google's Gemini 2.5 Flash to generate titles/categories/years and Drive folder suggestions
+2. `/upload-document` takes the confirmed metadata and uploads the PDF to Google Drive with the proper folder structure
 
 ## Features
 
 - **AI-Powered Classification**: Uses Gemini 2.5 Flash for intelligent document analysis
 - **Automatic Organization**: Files are organized by category and year in Google Drive
-- **PDF Text Extraction**: Extracts text content from PDF documents
 - **Firebase Authentication**: Secure user authentication
 - **Google Drive Integration**: Seamless upload to user's Google Drive
 - **Docker Support**: Easy deployment with containerization
@@ -23,11 +21,11 @@ This backend provides a single endpoint that handles the complete document proce
 ### Health Check
 - **GET** `/healthz` - Health check endpoint
 
-### Process Document
-- **POST** `/process-document` - Process PDF and upload to Google Drive
-  - Extracts text from PDF
-  - Generates title and category using AI
-  - Uploads to Google Drive with organized folder structure
+### Process Document (Analyze)
+- **POST** `/process-document` - Analyze PDF bytes with Gemini and return title/category/year plus folder suggestions. No upload occurs in this step.
+
+### Upload Document (Finalize)
+- **POST** `/upload-document` - Accepts the confirmed PDF + metadata, ensures the Drive folder path exists, and uploads the file. Returns Drive IDs/links.
 
 See [PROCESS_DOCUMENT_API.md](./PROCESS_DOCUMENT_API.md) for detailed API documentation.
 
@@ -226,21 +224,17 @@ See `deploy.sh` for automated deployment script.
 ┌──────────────────────────────────────┐
 │        FastAPI Backend               │
 │  ┌──────────────────────────────┐   │
-│  │  1. Extract text (PyPDF2)    │   │
-│  └──────────┬───────────────────┘   │
-│             ↓                        │
-│  ┌──────────────────────────────┐   │
-│  │  2. AI Analysis (Gemini)     │   │
+│  │  1. Analyze PDF (Gemini)     │   │
 │  │     - Generate title         │   │
 │  │     - Determine category     │   │
 │  └──────────┬───────────────────┘   │
 │             ↓                        │
 │  ┌──────────────────────────────┐   │
-│  │  3. Create folder structure  │   │
+│  │  2. Create folder structure  │   │
 │  └──────────┬───────────────────┘   │
 │             ↓                        │
 │  ┌──────────────────────────────┐   │
-│  │  4. Upload to Google Drive   │   │
+│  │  3. Upload to Google Drive   │   │
 │  └──────────────────────────────┘   │
 └──────────────────────────────────────┘
                 │
@@ -258,7 +252,6 @@ See `deploy.sh` for automated deployment script.
 - **Firebase Admin** - Authentication
 - **Google API Client** - Drive API integration
 - **Google Generative AI** - Gemini API client
-- **PyPDF2** - PDF text extraction
 - **Reportlab** - Test PDF generation
 - **Requests** - HTTP client for testing
 
