@@ -71,18 +71,23 @@ EXPO_PUBLIC_USE_MOCKS=false
 
 ## Architecture & System Design
 
-### Current Workflow (PDF-First Architecture)
+### Current Workflow (Context-Aware PDF Architecture)
 
-1. **Frontend captures image** → converts to PDF using `expo-print`
-2. **Frontend sends PDF** to `/process-document` (analysis) and later `/upload-document`
-3. **Backend passes the PDF bytes** directly to Gemini 2.5 Flash for title/category generation
-4. **Backend uploads** to Google Drive with folder organization: `Documents/{Category}/{Year}/{Title}.pdf`
-5. **Backend returns** metadata (title, category, Drive link, token usage)
+1. **Frontend captures image** → converts to PDF using `pdf-lib`
+2. **Frontend sends PDF + Google Drive token** to `/process-document` (analysis only)
+3. **Backend scans user's Drive folders** (2-3 levels deep) to understand organizational structure
+4. **Backend passes folder context + PDF** to Gemini 2.5 Flash for intelligent categorization
+5. **AI analyzes document AND suggests optimal folder path** based on user's existing organization
+6. **Backend returns** metadata (title, category, year) + suggested path with reasoning
+7. **Frontend shows suggestions** → user can review/edit before upload
+8. **Frontend calls `/upload-document`** with confirmed metadata + folder path
+9. **Backend creates folder path** (if needed) and uploads PDF to Drive
 
-**Key Design Decision:** All documents are converted to PDF before backend processing for:
-- Unified processing pipeline (backend only handles PDFs)
-- Consistent Drive storage format
-- Simpler codebase maintenance
+**Key Design Decisions:**
+- All documents are converted to PDF before backend processing
+- **Context-aware folder selection**: AI sees user's full folder structure before categorizing
+- **Flexible categories**: AI adapts to user's organizational patterns (not limited to predefined categories)
+- **Single AI call**: Folder context + document analysis happen together (more efficient than old 2-call approach)
 
 ### Module Organization
 
@@ -99,13 +104,21 @@ EXPO_PUBLIC_USE_MOCKS=false
 
 ### Document Categories
 
-The AI classifies documents into: Invoice, Receipt, Contract, Insurance, Tax, Medical, School, ID, Personal, Business, Legal, Financial, Other
+**Flexible Categories:** Unlike traditional document scanners, this system uses AI-driven flexible categorization that adapts to YOUR folder structure.
+
+- If you organize by **Work/Personal/Business** → AI uses those categories
+- If you organize by **Client names** → AI suggests client-specific paths
+- If you organize by **Document types** (Invoices, Receipts, etc.) → AI aligns with those
+
+**Example:** If you have `/Work/Resumes/2025` and upload a resume, AI will suggest that path instead of creating `/Business/Resume/2025`.
 
 ### API Endpoints
 
 - `GET /healthz` - Health check
-- `POST /process-document` - Analyze a PDF and return Gemini-generated metadata + folder suggestions
-- `POST /upload-document` - Upload the confirmed PDF to Drive after the user approves the metadata
+- `POST /process-document` - **Context-aware analysis**: Scans Drive folders, analyzes PDF with Gemini, returns metadata + suggested path with reasoning (REQUIRES Google Drive token)
+- `POST /upload-document` - Upload confirmed PDF to user-specified folder path in Drive
+
+**Important:** The `/process-document` endpoint now REQUIRES a Google Drive access token to scan folders and provide context to the AI.
 
 See `backend/PROCESS_DOCUMENT_API.md` for detailed API documentation.
 
@@ -204,6 +217,16 @@ No automated tests for this prototype. Manual testing:
 - Log only error diagnostics and request metrics
 
 ## Recent Major Changes
+
+**Context-Aware Folder Selection (Current):**
+- Refactored to scan user's Drive folders BEFORE document analysis
+- Single unified AI call: passes folder context + PDF to Gemini simultaneously
+- AI now suggests full folder paths based on user's existing organizational patterns
+- Flexible categories: adapts to user's folder structure instead of predefined categories
+- Google Drive access now REQUIRED (no longer optional)
+- Removed `folder_matcher.py` (logic consolidated into unified AI function)
+- Updated API: `/process-document` returns `suggestedPath`, `pathReason`, `isExistingPath`
+- Updated frontend: displays AI reasoning and allows path editing
 
 **Commit c622c65 (Image-to-PDF Workflow Refactor):**
 - Rebuilt from OCR-only to Gemini AI pipeline

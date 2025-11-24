@@ -66,7 +66,7 @@ export default function ProcessingScreen({ captures = [], googleAuth, onAnalyzed
 
   return (
     <View style={styles.center}>
-      <ActivityIndicator />
+      <ActivityIndicator color="#30bfa1" />
       <Text style={styles.status}>{status}…</Text>
       <TouchableOpacity style={styles.cancelBtn} onPress={onBack}>
         <Text style={styles.cancelText}>Cancel</Text>
@@ -77,10 +77,10 @@ export default function ProcessingScreen({ captures = [], googleAuth, onAnalyzed
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  status: { color: '#333' },
-  err: { color: '#b00020' },
-  btn: { backgroundColor: '#111', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+  status: { color: '#fff' },
+  err: { color: '#ff6b6b' },
+  btn: { backgroundColor: '#30bfa1', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
   btnText: { color: '#fff' },
-  cancelBtn: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
-  cancelText: { color: '#666' }
+  cancelBtn: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  cancelText: { color: '#ccc' }
 });

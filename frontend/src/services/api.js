@@ -65,13 +65,14 @@ export async function uploadDocument({
   title,
   category,
   year,
+  confirmedPath,
   selectedParentFolderId = null
 }) {
   if (!API_BASE || USE_MOCKS) {
     return Promise.resolve({
       driveFileId: 'mock-file-id-123',
       driveUrl: 'https://drive.google.com/file/d/mock-file-id-123/view',
-      finalFolderPath: `${category}/${year}`
+      finalFolderPath: confirmedPath || `${category}/${year}`
     });
   }
 
@@ -87,7 +88,8 @@ export async function uploadDocument({
     pdfData: pdfDataUri,
     title,
     category,
-    year
+    year,
+    confirmedPath
   };
   if (googleAccessToken) {
     body.googleAccessToken = googleAccessToken;

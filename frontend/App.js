@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import HomeScreen from './src/screens/Home.jsx';
 import CameraScreen from './src/screens/Camera.jsx';
 import PageReviewScreen from './src/screens/PageReview.jsx';
@@ -9,10 +10,12 @@ import ProcessingScreen from './src/screens/Processing.jsx';
 import ConfirmScreen from './src/screens/Confirm.jsx';
 import UploadScreen from './src/screens/Upload.jsx';
 import AuthScreen from './src/screens/Auth.jsx';
-import GoogleTestScreen from './src/screens/GoogleTest.jsx';
+import SettingsScreen from './src/screens/Settings.jsx';
 import { auth } from './src/services/firebase.js';
+import { Header } from './src/components/Header.jsx';
 
 const MAX_PAGES = 5;
+const STORAGE_KEY = 'google_auth_token';
 
 export default function App() {
   const [screen, setScreen] = useState('Home');
@@ -36,6 +39,23 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Load persisted Google Auth token
+  useEffect(() => {
+    const loadToken = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Optional: Check if expired here, but we also check in useMemo
+          setGoogleAuth(parsed);
+        }
+      } catch (e) {
+        console.error('Failed to load google token', e);
+      }
+    };
+    loadToken();
+  }, []);
+
   const handleSignOut = async () => {
     if (!auth) return;
     try {
@@ -50,14 +70,15 @@ export default function App() {
       setScreen('Home');
       setCaptures([]);
       setAnalysis(null);
-      setGoogleAuth(null);
+      // Don't clear googleAuth on sign out, as it's a separate integration
+      // But if you wanted to, you could: setGoogleAuth(null);
     }
   }, [user]);
 
   const driveStatus = useMemo(() => {
     if (!googleAuth) return 'Drive scope not linked';
     if (googleAuth.expiresAt && googleAuth.expiresAt <= Date.now()) {
-      return 'Drive scope expired — re-run Google test';
+      return 'Drive scope expired — reconnect in Settings';
     }
     return 'Drive scope ready';
   }, [googleAuth]);
@@ -85,22 +106,18 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerTextWrap}>
-            <Text style={styles.title}>Doc AI Prototype</Text>
-            <Text style={styles.subtitle}>{screen}</Text>
-            <Text style={[styles.status, googleAuth ? styles.ready : styles.warn]}>{driveStatus}</Text>
-          </View>
-          {user && auth ? (
-            <TouchableOpacity style={styles.signOut} onPress={handleSignOut}>
-              <Text style={styles.signOutText}>Sign Out</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        <Header
+          title="Doc AI"
+          subtitle={screen}
+          driveStatus={driveStatus}
+          onSignOut={handleSignOut}
+          showSignOut={!!(user && auth)}
+          googleAuth={googleAuth}
+        />
         {screen === 'Home' && (
           <HomeScreen
             onStartCamera={() => go('Camera')}
-            onTestGoogle={() => go('GoogleTest')}
+            onTestGoogle={() => go('Settings')}
             googleAuth={googleAuth}
           />
         )}
@@ -119,7 +136,7 @@ export default function App() {
               setCaptures((prev) => prev.filter((c) => c.id !== id));
             }}
             onRequestReview={() => go('PageReview')}
-            onTestGoogle={() => go('GoogleTest')}
+            onTestGoogle={() => go('Settings')}
             googleAuth={googleAuth}
             onBack={() => go('Home')}
           />
@@ -187,10 +204,10 @@ export default function App() {
             onBack={() => go('Confirm')}
           />
         )}
-        {screen === 'GoogleTest' && (
-          <GoogleTestScreen
-            initial={googleAuth}
-            onResult={(info) => setGoogleAuth(info)}
+        {screen === 'Settings' && (
+          <SettingsScreen
+            initialAuth={googleAuth}
+            onUpdateAuth={(info) => setGoogleAuth(info)}
             onBack={() => go('Home')}
           />
         )}
@@ -200,15 +217,6 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTextWrap: { gap: 2 },
-  title: { fontSize: 18, fontWeight: '600' },
-  subtitle: { fontSize: 12, color: '#666', marginTop: 4 },
-  signOut: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, backgroundColor: '#f2f2f2' },
-  signOutText: { color: '#333', fontSize: 12 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  status: { fontSize: 11 },
-  ready: { color: '#0a8754' },
-  warn: { color: '#cc6600' }
+  container: { flex: 1, backgroundColor: '#05060b' },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#05060b' },
 });

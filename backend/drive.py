@@ -165,12 +165,20 @@ def scan_drive_folders(access_token: str, max_depth: int = 2) -> Dict:
 
     Returns:
         {
-            'folders': [  # Flat list of all folders
-                {'id': str, 'name': str, 'path': str, 'depth': int, 'parents': [str]}
+            'folders': [  # Flat list of all folders with complete paths
+                {'id': str, 'name': str, 'path': str, 'depth': int}
             ],
-            'tree': [  # Hierarchical tree structure
-                {'id': str, 'name': str, 'children': [...]}
-            ]
+            'paths': [str]  # List of complete folder paths for AI context
+        }
+
+    Example:
+        {
+            'folders': [
+                {'id': '123', 'name': 'Work', 'path': '/Work', 'depth': 0},
+                {'id': '456', 'name': 'Resumes', 'path': '/Work/Resumes', 'depth': 1},
+                {'id': '789', 'name': '2025', 'path': '/Work/Resumes/2025', 'depth': 2}
+            ],
+            'paths': ['/Work', '/Work/Resumes', '/Work/Resumes/2025']
         }
 
     Raises:
@@ -180,60 +188,47 @@ def scan_drive_folders(access_token: str, max_depth: int = 2) -> Dict:
         service = _get_drive_service(access_token)
         all_folders = []
 
-        # Level 0: Get root-level folders
-        query = (
-            "mimeType='application/vnd.google-apps.folder' and "
-            "trashed=false and "
-            "'root' in parents"
-        )
-        results = service.files().list(
-            q=query,
-            spaces="drive",
-            fields="files(id, name, parents)",
-            pageSize=100
-        ).execute()
+        def _scan_folders_recursive(parent_id: Optional[str], parent_path: str, current_depth: int):
+            """Recursively scan folders up to max_depth."""
+            if current_depth > max_depth:
+                return
 
-        root_folders = results.get("files", [])
-        for folder in root_folders:
-            all_folders.append({
-                "id": folder["id"],
-                "name": folder["name"],
-                "path": folder["name"],
-                "depth": 0,
-                "parents": folder.get("parents", [])
-            })
+            # Build query for folders at this level
+            query = "mimeType='application/vnd.google-apps.folder' and trashed=false"
+            if parent_id is None:
+                query += " and 'root' in parents"
+            else:
+                query += f" and '{parent_id}' in parents"
 
-        # If max_depth >= 1, scan children of root folders
-        if max_depth >= 1:
-            for root_folder in root_folders:
-                query = (
-                    "mimeType='application/vnd.google-apps.folder' and "
-                    "trashed=false and "
-                    f"'{root_folder['id']}' in parents"
-                )
-                results = service.files().list(
-                    q=query,
-                    spaces="drive",
-                    fields="files(id, name, parents)",
-                    pageSize=100
-                ).execute()
+            results = service.files().list(
+                q=query,
+                spaces="drive",
+                fields="files(id, name)",
+                pageSize=100
+            ).execute()
 
-                child_folders = results.get("files", [])
-                for folder in child_folders:
-                    all_folders.append({
-                        "id": folder["id"],
-                        "name": folder["name"],
-                        "path": f"{root_folder['name']}/{folder['name']}",
-                        "depth": 1,
-                        "parents": folder.get("parents", [])
-                    })
+            folders = results.get("files", [])
+            for folder in folders:
+                folder_path = f"{parent_path}/{folder['name']}" if parent_path else f"/{folder['name']}"
+                all_folders.append({
+                    "id": folder["id"],
+                    "name": folder["name"],
+                    "path": folder_path,
+                    "depth": current_depth
+                })
 
-        # Build hierarchical tree structure
-        tree = _build_folder_tree(all_folders, max_depth)
+                # Recursively scan children
+                _scan_folders_recursive(folder["id"], folder_path, current_depth + 1)
+
+        # Start recursive scan from root
+        _scan_folders_recursive(None, "", 0)
+
+        # Extract just the paths for AI context
+        paths = [folder["path"] for folder in all_folders]
 
         return {
             "folders": all_folders,
-            "tree": tree
+            "paths": paths
         }
 
     except Exception as e:

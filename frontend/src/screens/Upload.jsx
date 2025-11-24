@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Linking, ActivityIndicator, Platform } from 'react-native';
 import { uploadDocument } from '../services/api.js';
 
 export default function UploadScreen({ analysis, googleAuth, onDone, onBack }) {
@@ -30,6 +30,7 @@ export default function UploadScreen({ analysis, googleAuth, onDone, onBack }) {
           title: userEdits.title,
           category: userEdits.category,
           year: userEdits.year,
+          confirmedPath: analysis.confirmedPath,
           selectedParentFolderId: analysis.selectedParentFolderId
         });
 
@@ -58,7 +59,7 @@ export default function UploadScreen({ analysis, googleAuth, onDone, onBack }) {
   if (uploading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#30bfa1" />
         <Text style={styles.status}>Uploading to Google Drive...</Text>
       </View>
     );
@@ -67,87 +68,263 @@ export default function UploadScreen({ analysis, googleAuth, onDone, onBack }) {
   if (error) {
     return (
       <View style={styles.center}>
-        <Text style={styles.err}>Upload Error: {error}</Text>
-        <TouchableOpacity style={styles.btn} onPress={onBack}>
-          <Text style={styles.btnText}>Back</Text>
+        <View style={styles.errorIcon}>
+          <Text style={styles.errorIconText}>!</Text>
+        </View>
+        <Text style={styles.errTitle}>Upload Failed</Text>
+        <Text style={styles.errDesc}>{error}</Text>
+        <TouchableOpacity style={styles.btnSecondary} onPress={onBack}>
+          <Text style={styles.btnTextSecondary}>Try Again</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.big}>✅ Upload Complete</Text>
-      <Text style={styles.label}>Title:</Text>
-      <Text style={styles.value}>{analysis?.title || 'n/a'}</Text>
-      <Text style={styles.label}>Category:</Text>
-      <Text style={styles.value}>{analysis?.category || 'n/a'}</Text>
-      <Text style={styles.label}>Year:</Text>
-      <Text style={styles.value}>{analysis?.year || 'n/a'}</Text>
-      <Text style={styles.label}>Pages:</Text>
-      <Text style={styles.value}>{analysis?.pageCount || 1}</Text>
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <View style={styles.hero}>
+          <View style={styles.successIcon}>
+            <Text style={styles.checkMark}>✓</Text>
+          </View>
+          <Text style={styles.heroTitle}>Upload Complete</Text>
+          <Text style={styles.heroSubtitle}>Your document has been securely saved.</Text>
+        </View>
 
-      {uploadResult?.driveUrl ? (
-        <View style={styles.driveCard}>
-          <Text style={styles.driveLabel}>📁 Google Drive</Text>
-          <Text style={styles.driveSuccess}>Successfully uploaded to Drive!</Text>
-          <Text style={styles.driveLocation}>Location: {uploadResult?.finalFolderPath || 'Unknown'}</Text>
-          <TouchableOpacity style={styles.driveBtn} onPress={handleOpenDrive}>
-            <Text style={styles.driveBtnText}>Open in Drive</Text>
+        <View style={styles.card}>
+          <View style={styles.fileRow}>
+            <View style={styles.pdfIcon}>
+              <Text style={styles.pdfText}>PDF</Text>
+            </View>
+            <View style={styles.fileInfo}>
+              <Text style={styles.fileName} numberOfLines={1}>{analysis?.title || 'Untitled'}.pdf</Text>
+              <Text style={styles.fileMeta}>{analysis?.pageCount || 1} page{analysis?.pageCount !== 1 ? 's' : ''}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.divider} />
+          
+          <View style={styles.pathSection}>
+            <Text style={styles.pathLabel}>SAVED TO</Text>
+            <Text style={styles.pathValue}>
+              {uploadResult?.finalFolderPath ? `/${uploadResult.finalFolderPath}` : 'Google Drive'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.actions}>
+          {uploadResult?.driveUrl ? (
+            <TouchableOpacity style={styles.btnPrimary} onPress={handleOpenDrive}>
+              <Text style={styles.btnTextPrimary}>Open in Google Drive</Text>
+            </TouchableOpacity>
+          ) : (
+             <View style={styles.warningBox}>
+              <Text style={styles.warningText}>Drive link unavailable (Auth missing)</Text>
+            </View>
+          )}
+          
+          <TouchableOpacity style={styles.btnSecondary} onPress={onDone}>
+            <Text style={styles.btnTextSecondary}>Done</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <View style={styles.driveCard}>
-          <Text style={styles.driveWarning}>
-            Not uploaded to Drive. Connect Google OAuth to enable uploads.
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.row}>
-        <TouchableOpacity style={[styles.btn, styles.secondary]} onPress={onBack}>
-          <Text style={styles.btnText}>Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.btn} onPress={onDone}>
-          <Text style={styles.btnText}>Done</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, padding: 24, justifyContent: 'center', gap: 12 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
-  status: { fontSize: 14, color: '#333', marginTop: 8 },
-  err: { fontSize: 14, color: '#b00020', textAlign: 'center' },
-  big: { fontSize: 20, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
-  label: { fontSize: 12, color: '#666', fontWeight: '600', marginTop: 12 },
-  value: { fontSize: 14, color: '#111' },
-  driveCard: {
-    backgroundColor: '#f5f5f5',
-    padding: 16,
-    borderRadius: 10,
-    marginTop: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#0a8754',
-    gap: 8
+  container: {
+    flex: 1,
+    backgroundColor: '#05060b',
   },
-  driveLabel: { fontSize: 14, fontWeight: '600', color: '#333' },
-  driveSuccess: { fontSize: 13, color: '#0a8754' },
-  driveLocation: { fontSize: 12, color: '#666', fontStyle: 'italic' },
-  driveWarning: { fontSize: 13, color: '#cc6600' },
-  driveBtn: {
-    backgroundColor: '#0a8754',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+  content: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+    maxWidth: 500,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  center: {
+    flex: 1,
     alignItems: 'center',
-    marginTop: 4
+    justifyContent: 'center',
+    backgroundColor: '#05060b',
+    padding: 24,
   },
-  driveBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, gap: 12 },
-  btn: { flex: 1, backgroundColor: '#111', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-  secondary: { backgroundColor: '#666' },
-  btnText: { color: '#fff', fontWeight: '600' }
+  status: {
+    marginTop: 16,
+    color: '#8ca3ff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  // Hero Section
+  hero: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  successIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(48, 191, 161, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(48, 191, 161, 0.3)',
+  },
+  checkMark: {
+    fontSize: 36,
+    color: '#30bfa1',
+    fontWeight: 'bold',
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  heroSubtitle: {
+    fontSize: 16,
+    color: '#8ca3ff',
+    textAlign: 'center',
+  },
+  // Card Section
+  card: {
+    backgroundColor: '#101420',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 32,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pdfIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#ff4757',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  pdfText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  fileInfo: {
+    flex: 1,
+  },
+  fileName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  fileMeta: {
+    fontSize: 13,
+    color: '#8ca3ff',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginVertical: 16,
+  },
+  pathSection: {
+    gap: 6,
+  },
+  pathLabel: {
+    fontSize: 11,
+    color: '#666',
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  pathValue: {
+    fontSize: 14,
+    color: '#30bfa1',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  // Actions
+  actions: {
+    gap: 12,
+  },
+  btnPrimary: {
+    backgroundColor: '#30bfa1',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  btnTextPrimary: {
+    color: '#04140d',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  btnSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  btnTextSecondary: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  warningBox: {
+    padding: 12,
+    backgroundColor: 'rgba(255, 159, 67, 0.1)',
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  warningText: {
+    color: '#ff9f43',
+    fontSize: 13,
+  },
+  // Error State
+  errorIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 71, 87, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  errorIconText: {
+    fontSize: 32,
+    color: '#ff4757',
+    fontWeight: 'bold',
+  },
+  errTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  errDesc: {
+    fontSize: 16,
+    color: '#8ca3ff',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
 });
