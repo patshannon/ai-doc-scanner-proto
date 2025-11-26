@@ -10,11 +10,13 @@ This backend provides two endpoints that together handle the document workflow:
 
 ## Features
 
-- **AI-Powered Classification**: Uses Gemini 2.5 Flash for intelligent document analysis
+- **AI-Powered Classification**: Uses Gemini 2.5 Flash Lite for intelligent document analysis
 - **Automatic Organization**: Files are organized by category and year in Google Drive
+- **Smart Caching**: Drive folder structure cached for 5 minutes with automatic invalidation
 - **Firebase Authentication**: Secure user authentication
 - **Google Drive Integration**: Seamless upload to user's Google Drive
 - **Docker Support**: Easy deployment with containerization
+- **Performance Optimized**: First-page-only PDF processing and intelligent caching for faster analysis
 
 ## API Endpoints
 

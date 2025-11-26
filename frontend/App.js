@@ -14,7 +14,7 @@ import SettingsScreen from './src/screens/Settings.jsx';
 import { auth } from './src/services/firebase.js';
 import { Header } from './src/components/Header.jsx';
 
-const MAX_PAGES = 5;
+const MAX_PAGES = 10;
 const STORAGE_KEY = 'google_auth_token';
 
 export default function App() {

@@ -6,12 +6,106 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  Dimensions,
+  Switch,
+  Platform
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import ImageEditor from '../components/ImageEditor';
-import { imageEditor } from '../services/imageEditor';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+function BrightGuideOverlay({ width, height }) {
+  // Use full screen width for the guide frame
+  // A4 aspect ratio is 1 : 1.414
+  const guideWidth = width;
+  const guideHeight = guideWidth * 1.414;
+  
+  // Ensure it fits vertically (accounting for top and bottom bars)
+  // Leave some space for top bar (~100px) and bottom bar (~90px)
+  const maxHeight = height - 190;
+  let finalWidth = guideWidth;
+  let finalHeight = guideHeight;
+  
+  if (guideHeight > maxHeight) {
+    finalHeight = maxHeight;
+    finalWidth = finalHeight / 1.414;
+  }
+
+  const cornerSize = 30; // Length of corner bracket arms
+  const lineThickness = 3;
+
+  return (
+    <View style={styles.guideContainer} pointerEvents="none">
+      <View style={[styles.guideFrame, { width: finalWidth, height: finalHeight }]}>
+        {/* Edge Lines */}
+        <View style={[styles.edgeLine, styles.topEdge, { width: finalWidth }]} />
+        <View style={[styles.edgeLine, styles.bottomEdge, { width: finalWidth }]} />
+        <View style={[styles.edgeLine, styles.leftEdge, { height: finalHeight }]} />
+        <View style={[styles.edgeLine, styles.rightEdge, { height: finalHeight }]} />
+        
+        {/* Top Left Corner */}
+        <View style={[
+          styles.cornerBracket, 
+          styles.topLeft,
+          { 
+            width: cornerSize, 
+            height: cornerSize,
+            borderTopWidth: lineThickness,
+            borderLeftWidth: lineThickness,
+            borderColor: '#4CAF50',
+          }
+        ]} />
+        
+        {/* Top Right Corner */}
+        <View style={[
+          styles.cornerBracket, 
+          styles.topRight,
+          { 
+            width: cornerSize, 
+            height: cornerSize,
+            borderTopWidth: lineThickness,
+            borderRightWidth: lineThickness,
+            borderColor: '#4CAF50',
+          }
+        ]} />
+        
+        {/* Bottom Left Corner */}
+        <View style={[
+          styles.cornerBracket, 
+          styles.bottomLeft,
+          { 
+            width: cornerSize, 
+            height: cornerSize,
+            borderBottomWidth: lineThickness,
+            borderLeftWidth: lineThickness,
+            borderColor: '#4CAF50',
+          }
+        ]} />
+        
+        {/* Bottom Right Corner */}
+        <View style={[
+          styles.cornerBracket, 
+          styles.bottomRight,
+          { 
+            width: cornerSize, 
+            height: cornerSize,
+            borderBottomWidth: lineThickness,
+            borderRightWidth: lineThickness,
+            borderColor: '#4CAF50',
+          }
+        ]} />
+      </View>
+      
+      <View style={styles.guideTextContainer}>
+        <Text style={styles.guideText}>Align document within frame</Text>
+      </View>
+    </View>
+  );
+}
 
 async function buildThumbnail(uri) {
   if (!uri) return null;
@@ -46,17 +140,6 @@ function extractExifDate(exif) {
   return null;
 }
 
-function BackAction({ overlay = false, onBack }) {
-  if (!onBack) return null;
-  return (
-    <View style={overlay ? styles.topOverlay : styles.backRow}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 export default function CameraScreen({
   captures = [],
   maxPages = 5,
@@ -75,13 +158,15 @@ export default function CameraScreen({
   const [error, setError] = useState(null);
   const [editingImage, setEditingImage] = useState(null);
   const [pendingCapture, setPendingCapture] = useState(null);
+  const [autoCrop, setAutoCrop] = useState(true);
+  const [flashMode, setFlashMode] = useState('on'); // 'off', 'on', 'auto', 'torch'
 
   const driveStatusText = useMemo(() => {
-    if (!googleAuth) return 'Google OAuth not linked';
+    if (!googleAuth) return 'Not linked';
     if (googleAuth.expiresAt && googleAuth.expiresAt <= Date.now()) {
-      return 'Google Drive scope expired — re-authorize';
+      return 'Expired';
     }
-    return 'Google Drive scope granted';
+    return 'Linked';
   }, [googleAuth]);
 
   const handleRequestPermission = useCallback(async () => {
@@ -96,7 +181,7 @@ export default function CameraScreen({
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || capturing) return;
     if (captures.length >= maxPages) {
-      setError(`Limit reached — max ${maxPages} pages per document`);
+      setError(`Limit reached — max ${maxPages} pages`);
       return;
     }
     setCapturing(true);
@@ -116,7 +201,8 @@ export default function CameraScreen({
       const captureData = {
         uri: photo?.uri,
         exifDate,
-        thumbBase64
+        thumbBase64,
+        autoCropEnabled: autoCrop // Pass this to ImageEditor
       };
       
       setPendingCapture(captureData);
@@ -126,7 +212,16 @@ export default function CameraScreen({
     } finally {
       setCapturing(false);
     }
-  }, [capturing, captures.length, maxPages, onAddCapture]);
+  }, [capturing, captures.length, maxPages, onAddCapture, autoCrop]);
+
+  const toggleFlash = useCallback(() => {
+    setFlashMode(prev => {
+      if (prev === 'off') return 'on';
+      if (prev === 'on') return 'auto';
+      if (prev === 'auto') return 'torch';
+      return 'off';
+    });
+  }, []);
 
   const handleEditSave = useCallback(async ({ uri, edits }) => {
     try {
@@ -155,7 +250,11 @@ export default function CameraScreen({
   }, [pendingCapture, onAddCapture]);
 
   const handleEditCancel = useCallback(() => {
-    // Add original capture without editing
+    // Add original capture without editing if user cancels? 
+    // Usually "Cancel" in this flow implies "Retake" or "Discard". 
+    // But for now let's assume it means "Keep original".
+    // Actually, let's make it discard to be safe, or just keep original.
+    // Let's keep original for safety, but maybe without edits.
     if (pendingCapture) {
       onAddCapture?.(pendingCapture);
     }
@@ -169,9 +268,7 @@ export default function CameraScreen({
   if (!permission) {
     return (
       <View style={styles.centered}>
-        <BackAction onBack={onBack} />
-        <ActivityIndicator />
-        <Text style={styles.info}>Requesting camera permissions…</Text>
+        <ActivityIndicator size="large" color="#fff" />
       </View>
     );
   }
@@ -179,17 +276,15 @@ export default function CameraScreen({
   if (!permission.granted) {
     return (
       <View style={styles.deniedWrap}>
-        <BackAction onBack={onBack} />
-        <Text style={styles.deniedTitle}>Camera access needed</Text>
+        <TouchableOpacity style={styles.backBtnAbsolute} onPress={onBack}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.deniedTitle}>Camera Access Required</Text>
         <Text style={styles.deniedCopy}>
-          Enable the camera to capture documents. You can also grant access from iOS Settings later.
+          Please enable camera access to scan documents.
         </Text>
         <TouchableOpacity style={styles.primaryButton} onPress={handleRequestPermission}>
-          <Text style={styles.primaryButtonText}>Allow Camera Access</Text>
-        </TouchableOpacity>
-        {error ? <Text style={styles.errorText}>Error: {error}</Text> : null}
-        <TouchableOpacity style={styles.secondaryBtn} onPress={onTestGoogle}>
-          <Text style={styles.secondaryText}>Test Google OAuth</Text>
+          <Text style={styles.primaryButtonText}>Grant Access</Text>
         </TouchableOpacity>
       </View>
     );
@@ -203,45 +298,56 @@ export default function CameraScreen({
         facing="back"
         enableZoomGesture
         autofocus="on"
+        flash={flashMode === 'torch' ? 'off' : flashMode}
+        enableTorch={flashMode === 'torch'}
       />
-      <BackAction overlay onBack={onBack} />
-      <View style={styles.overlay}>
-        <View style={styles.statusWrap}>
-          <Text style={styles.statusText}>{driveStatusText}</Text>
-          <Text style={styles.pageCount}>Pages: {captures.length}/{maxPages}</Text>
-          {error ? <Text style={styles.errorText}>Error: {error}</Text> : null}
+      
+      <BrightGuideOverlay width={SCREEN_WIDTH} height={SCREEN_HEIGHT} />
+
+      {/* Top Controls */}
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.iconBtn} onPress={onBack}>
+          <Ionicons name="close" size={28} color="#fff" />
+        </TouchableOpacity>
+        
+        <View style={styles.topCenter}>
+           <Text style={styles.pageCount}>{captures.length} / {maxPages}</Text>
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.thumbScroll}
-          contentContainerStyle={styles.thumbRow}
-        >
-          {captures.map((cap, index) => (
-            <View key={cap.id || index} style={styles.thumbCard}>
-              <Image
-                source={{ uri: cap.thumbBase64 || cap.uri }}
-                style={styles.thumbImage}
-              />
-              <Text style={styles.thumbLabel}>Pg {index + 1}</Text>
-              <TouchableOpacity
-                style={styles.thumbRemove}
-                onPress={() => onRemoveCapture?.(cap.id)}
-              >
-                <Text style={styles.thumbRemoveText}>×</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </ScrollView>
-        {!canCaptureMore ? (
-          <Text style={styles.limitNote}>
-            Max pages captured. Remove a page or continue to review.
-          </Text>
-        ) : null}
-        <View style={styles.controls}>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={onTestGoogle}>
-            <Text style={styles.secondaryText}>Google OAuth</Text>
+
+        <View style={styles.topRightGroup}>
+          <TouchableOpacity style={styles.iconBtn} onPress={toggleFlash}>
+            {flashMode === 'on' && <Ionicons name="flash" size={24} color="#FFD700" />}
+            {flashMode === 'auto' && <MaterialIcons name="flash-auto" size={24} color="#fff" />}
+            {flashMode === 'torch' && <Ionicons name="flashlight" size={24} color="#FFD700" />}
+            {flashMode === 'off' && <Ionicons name="flash-off" size={24} color="#fff" />}
           </TouchableOpacity>
+
+          <TouchableOpacity style={styles.iconBtn} onPress={onTestGoogle}>
+            <Ionicons 
+              name={driveStatusText === 'Linked' ? "cloud-done" : "cloud-offline"} 
+              size={24} 
+              color={driveStatusText === 'Linked' ? "#4CAF50" : "#fff"} 
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Bottom Controls */}
+      <View style={styles.bottomBar}>
+        {/* Auto Crop Toggle */}
+        <View style={styles.toggleContainer}>
+          <Text style={styles.toggleLabel}>Auto Crop</Text>
+          <Switch
+            trackColor={{ false: "#767577", true: "#0a8754" }}
+            thumbColor={autoCrop ? "#fff" : "#f4f3f4"}
+            ios_backgroundColor="#3e3e3e"
+            onValueChange={setAutoCrop}
+            value={autoCrop}
+          />
+        </View>
+
+        {/* Capture Button */}
+        <View style={styles.captureContainer}>
           <TouchableOpacity
             style={[styles.captureBtn, (!canCaptureMore || capturing) && styles.captureDisabled]}
             onPress={handleCapture}
@@ -253,15 +359,25 @@ export default function CameraScreen({
               <View style={styles.captureInner} />
             )}
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.reviewBtn, !canReview && styles.reviewDisabled]}
-            disabled={!canReview}
-            onPress={onRequestReview}
-          >
-            <Text style={styles.reviewText}>Review Pages</Text>
-          </TouchableOpacity>
+        </View>
+
+        {/* Review Button */}
+        <View style={styles.reviewContainer}>
+          {canReview && (
+            <TouchableOpacity style={styles.reviewBtn} onPress={onRequestReview}>
+              <Text style={styles.reviewText}>Review</Text>
+              <Ionicons name="arrow-forward" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      {/* Error Toast */}
+      {error && (
+        <View style={styles.errorToast}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
       {/* Image Editor Modal */}
       {editingImage && lastEditingImage.current !== editingImage && (
@@ -270,6 +386,12 @@ export default function CameraScreen({
           imageUri={editingImage}
           onSave={handleEditSave}
           onCancel={handleEditCancel}
+          initialEdits={{
+            // If autoCrop is enabled, we don't pass a crop here, 
+            // but we rely on ImageEditor to calculate it if we pass a flag.
+            // Or we can pass a flag 'autoDetectCrop: true'
+            autoDetectCrop: autoCrop
+          }}
         />
       )}
       {editingImage && (lastEditingImage.current = editingImage, null)}
@@ -280,136 +402,209 @@ export default function CameraScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   camera: { flex: 1 },
-  topOverlay: {
+  
+  // Guide Overlay Styles
+  guideContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  guideFrame: {
+    position: 'relative',
+  },
+  
+  // Edge Lines
+  edgeLine: {
     position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
-    zIndex: 10
+    backgroundColor: '#4CAF50',
   },
-  backRow: {
+  topEdge: {
+    top: 0,
+    left: 0,
+    height: 2,
+  },
+  bottomEdge: {
+    bottom: 0,
+    left: 0,
+    height: 2,
+  },
+  leftEdge: {
+    left: 0,
+    top: 0,
+    width: 2,
+  },
+  rightEdge: {
+    right: 0,
+    top: 0,
+    width: 2,
+  },
+  
+  // Corner Brackets
+  cornerBracket: {
+    position: 'absolute',
+  },
+  topLeft: {
+    top: 0,
+    left: 0,
+  },
+  topRight: {
+    top: 0,
+    right: 0,
+  },
+  bottomLeft: {
+    bottom: 0,
+    left: 0,
+  },
+  bottomRight: {
+    bottom: 0,
+    right: 0,
+  },
+  
+  guideTextContainer: {
+    position: 'absolute',
+    top: '15%',
     width: '100%',
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    alignItems: 'flex-start'
+    alignItems: 'center',
+    zIndex: 20,
   },
-  backBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignSelf: 'flex-start'
-  },
-  backText: {
+  guideText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '500'
+    fontSize: 15,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
   },
-  overlay: {
+
+  // UI Controls
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 30,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  topCenter: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  pageCount: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+
+  bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    gap: 12
-  },
-  statusWrap: { gap: 4 },
-  statusText: { color: '#f2f2f2', fontSize: 13 },
-  pageCount: { color: '#fff', fontSize: 12 },
-  errorText: { color: '#ffb4a2', fontSize: 12 },
-  controls: {
+    height: 90,
+    backgroundColor: 'rgba(0,0,0,0.3)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 5,
+    zIndex: 30,
   },
-  secondaryBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#fff',
-    alignItems: 'center'
+  toggleContainer: {
+    alignItems: 'center',
+    gap: 2,
+    width: 70,
   },
-  secondaryText: { color: '#fff', fontWeight: '500' },
+  toggleLabel: {
+    color: '#ccc',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  captureContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   captureBtn: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 3,
     borderColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.2)'
   },
   captureInner: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#fff'
   },
-  captureDisabled: { opacity: 0.4 },
-  reviewBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: '#0a8754',
-    alignItems: 'center'
-  },
-  reviewDisabled: {
-    backgroundColor: 'rgba(10,135,84,0.2)'
-  },
-  reviewText: { color: '#fff', fontWeight: '600' },
-  thumbScroll: { maxHeight: 100 },
-  thumbRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  thumbCard: {
-    width: 60,
-    height: 80,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.4)',
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: 'rgba(0,0,0,0.3)'
-  },
-  thumbImage: { width: '100%', height: '100%' },
-  thumbLabel: {
-    position: 'absolute',
-    bottom: 4,
-    left: 6,
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-    textShadowColor: '#000',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2
-  },
-  thumbRemove: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+  captureDisabled: { opacity: 0.5 },
+  
+  reviewContainer: {
+    width: 70,
     alignItems: 'center',
-    justifyContent: 'center'
   },
-  thumbRemoveText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  limitNote: { color: '#ffeb3b', fontSize: 12 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 16 },
-  info: { color: '#444', fontSize: 13 },
-  deniedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 20 },
-  deniedTitle: { fontSize: 18, fontWeight: '600', textAlign: 'center' },
-  deniedCopy: { fontSize: 14, color: '#555', textAlign: 'center' },
-  primaryButton: {
-    backgroundColor: '#111',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8
+  reviewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
   },
-  primaryButtonText: { color: '#fff', fontWeight: '600' }
+  reviewText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+
+  errorToast: {
+    position: 'absolute',
+    top: 100,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,59,48,0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 40,
+  },
+  errorText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Permission / Loading states
+  centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  deniedWrap: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', padding: 20, gap: 16 },
+  deniedTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+  deniedCopy: { color: '#ccc', fontSize: 16, textAlign: 'center' },
+  primaryButton: { backgroundColor: '#0a8754', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
+  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  backBtnAbsolute: { position: 'absolute', top: 50, left: 20, padding: 8 },
 });

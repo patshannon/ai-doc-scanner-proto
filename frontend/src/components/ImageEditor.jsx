@@ -50,21 +50,69 @@ export default function ImageEditor({
   useEffect(() => {
     if (visible && imageUri && lastImageUri.current !== imageUri) {
       lastImageUri.current = imageUri;
-      setCurrentImageUri(imageUri);
-      setEditing({
-        rotation: 0,
-        crop: null,
-        scanMode: true,
-        ...initialEdits
-      });
-      setSelectedAspectRatio('a4');
+      setProcessing(true);
+      
+      const init = async () => {
+        const startEdits = {
+          rotation: 0,
+          crop: null,
+          scanMode: true,
+          ...initialEdits
+        };
+
+        // If we already have a crop (editing existing), just proceed
+        if (initialEdits.crop) {
+          setEditing(startEdits);
+          setSelectedAspectRatio('a4');
+          setCurrentImageUri(imageUri);
+          // processing will be turned off by applyEdits which is triggered by these state changes
+          return;
+        }
+
+          // If no crop (new image), calculate it FIRST before setting state to avoid double-process
+        try {
+          const dims = await imageEditor.getImageDimensions(imageUri);
+          imageDimensionsRef.current = dims;
+          
+          let effectiveDims = dims;
+          // Account for initial rotation if any
+          if (startEdits.rotation % 180 !== 0) {
+            effectiveDims = { width: dims.height, height: dims.width };
+          }
+
+          // Only auto-crop if allowed (default to true if undefined for backward compatibility)
+          if (startEdits.autoDetectCrop !== false) {
+            const cropDimensions = imageEditor.calculateCropDimensions(effectiveDims, 'a4');
+            if (cropDimensions) {
+              startEdits.crop = cropDimensions;
+            }
+          } else {
+             // If auto-crop is disabled, ensure we start with 'free' or 'original' aspect ratio
+             // We might want to set selectedAspectRatio to 'free' in state later
+             // But for now, just don't set a crop.
+          }
+        } catch (err) {
+          console.error('Failed to load image dimensions:', err);
+        }
+
+        // Apply initial state with calculated crop
+        // Apply initial state with calculated crop
+        setEditing(startEdits);
+        // If we have a crop, assume A4 (or whatever logic used). If not, 'free'.
+        setSelectedAspectRatio(startEdits.crop ? 'a4' : 'free');
+        setCurrentImageUri(imageUri);
+      };
+
+      init();
     }
   }, [visible, imageUri]);
 
   const handleImageLoad = useCallback((event) => {
-    const { width, height } = event.nativeEvent.source;
-    // Update the ref instead of state to avoid re-renders
-    imageDimensionsRef.current = { width, height };
+    // Only update if we don't have dimensions yet (fallback)
+    if (imageDimensionsRef.current.width === 0) {
+      const { width, height } = event.nativeEvent.source;
+      imageDimensionsRef.current = { width, height };
+    }
   }, []);
 
   const applyEdits = async () => {
@@ -73,7 +121,8 @@ export default function ImageEditor({
     setProcessing(true);
     try {
       // Use the imageEditor service to apply edits
-      const finalUri = await imageEditor.applyEdits(currentImageUri, editing);
+      // Skip the slow filter for previewing
+      const finalUri = await imageEditor.applyEdits(currentImageUri, editing, { skipFilter: true });
       setPreviewUri(finalUri);
       return finalUri;
     } catch (error) {
@@ -92,11 +141,19 @@ export default function ImageEditor({
   }, [editing.rotation, editing.crop, editing.scanMode]);
 
   const handleSave = async () => {
-    if (onSave && previewUri) {
-      onSave({
-        uri: previewUri,
-        edits: editing
-      });
+    if (onSave) {
+      setProcessing(true);
+      try {
+        // Apply the edits WITH the scan filter for the final output
+        const finalUri = await imageEditor.applyEdits(currentImageUri, editing, { skipFilter: false });
+        onSave({
+          uri: finalUri,
+          edits: editing
+        });
+      } catch (error) {
+        console.error('Error saving image:', error);
+        setProcessing(false);
+      }
     }
   };
 
@@ -108,6 +165,17 @@ export default function ImageEditor({
     });
     setCurrentImageUri(imageUri);
     setSelectedAspectRatio('a4');
+    
+    // Re-apply default crop on reset
+    if (imageDimensionsRef.current.width > 0) {
+      const cropDimensions = imageEditor.calculateCropDimensions(imageDimensionsRef.current, 'a4');
+      if (cropDimensions) {
+        setEditing(prev => ({
+          ...prev,
+          crop: cropDimensions
+        }));
+      }
+    }
   };
 
   const rotateImage = useCallback((degrees) => {
@@ -124,7 +192,13 @@ export default function ImageEditor({
     } else {
       // Calculate crop dimensions based on aspect ratio
       const aspectRatio = ASPECT_RATIOS[ratio];
-      const dimensions = imageDimensionsRef.current;
+      let dimensions = imageDimensionsRef.current;
+      
+      // Adjust dimensions for current rotation
+      if (editing.rotation % 180 !== 0) {
+        dimensions = { width: dimensions.height, height: dimensions.width };
+      }
+
       if (aspectRatio && dimensions.width > 0) {
         const cropDimensions = imageEditor.calculateCropDimensions(dimensions, ratio);
         if (cropDimensions) {
@@ -135,7 +209,7 @@ export default function ImageEditor({
         }
       }
     }
-  }, []);
+  }, [editing.rotation]);
 
   return (
     <Modal

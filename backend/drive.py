@@ -3,12 +3,21 @@
 import base64
 import io
 import os
+import time
+import logging
 from typing import Dict, List, Optional, Tuple
 
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+
+logger = logging.getLogger(__name__)
+
+# In-memory cache for Drive folder structures
+# Format: {user_id: {"folders": {...}, "paths": [...], "expires_at": timestamp}}
+_folder_cache: Dict[str, Dict] = {}
+_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 class DriveError(Exception):
@@ -155,7 +164,126 @@ def _build_folder_tree(folders: List[Dict], max_depth: int = 2) -> List[Dict]:
     return root_folders
 
 
-def scan_drive_folders(access_token: str, max_depth: int = 2) -> Dict:
+def clear_folder_cache(user_id: str) -> None:
+    """
+    Clear the cached folder structure for a specific user.
+    
+    Call this when folders are created to ensure fresh data on next scan.
+    
+    Args:
+        user_id: Unique identifier for the user (e.g., Firebase UID)
+    """
+    if user_id in _folder_cache:
+        logger.info(f"Clearing folder cache for user: {user_id}")
+        del _folder_cache[user_id]
+
+
+def _get_cached_folders(user_id: str) -> Optional[Dict]:
+    """
+    Get cached folder structure if valid (not expired).
+    
+    Args:
+        user_id: Unique identifier for the user
+        
+    Returns:
+        Cached folder data or None if cache miss/expired
+    """
+    if user_id not in _folder_cache:
+        return None
+        
+    cached_data = _folder_cache[user_id]
+    now = time.time()
+    
+    if cached_data["expires_at"] <= now:
+        logger.info(f"Folder cache expired for user: {user_id}")
+        del _folder_cache[user_id]
+        return None
+    
+    logger.info(f"Using cached folder structure for user: {user_id} (expires in {cached_data['expires_at'] - now:.0f}s)")
+    return cached_data
+
+
+def _set_cached_folders(user_id: str, folder_data: Dict) -> None:
+    """
+    Store folder structure in cache with TTL.
+    
+    Args:
+        user_id: Unique identifier for the user
+        folder_data: Folder structure to cache
+    """
+    now = time.time()
+    _folder_cache[user_id] = {
+        **folder_data,
+        "expires_at": now + _CACHE_TTL_SECONDS
+    }
+    logger.info(f"Cached folder structure for user: {user_id} (TTL: {_CACHE_TTL_SECONDS}s)")
+
+
+def scan_folder_children(parent_path: str, access_token: str) -> List[Dict]:
+    """
+    Scan immediate children (1 level deep) of a specific folder.
+    
+    Used for phase 2 of progressive scanning - after identifying a top-level category,
+    scan deeper only within that specific folder.
+    
+    Args:
+        parent_path: Path to parent folder (e.g., '/Car' or '/Finance')
+        access_token: User's OAuth access token
+        
+    Returns:
+        List of child folders with paths like ['/Car/Mazda CX-5', '/Car/Toyota Camry']
+        
+    Example:
+        children = scan_folder_children('/Car', token)
+        # Returns: [
+        #   {'id': '123', 'name': 'Mazda CX-5', 'path': '/Car/Mazda CX-5'},
+        #   {'id': '456', 'name': 'Toyota Camry', 'path': '/Car/Toyota Camry'}
+        # ]
+    """
+    try:
+        service = _get_drive_service(access_token)
+        
+        # First, find the parent folder ID
+        parent_path = parent_path.strip('/')
+        path_parts = [p.strip() for p in parent_path.split('/') if p.strip()]
+        
+        parent_id = None
+        for folder_name in path_parts:
+            folder_id = _find_folder(service, folder_name, parent_id)
+            if not folder_id:
+                logger.warning(f"Parent folder not found: {parent_path}")
+                return []
+            parent_id = folder_id
+        
+        # Now scan children of this parent
+        query = f"mimeType='application/vnd.google-apps.folder' and trashed=false and '{parent_id}' in parents"
+        
+        results = service.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name)",
+            pageSize=100
+        ).execute()
+        
+        folders = results.get("files", [])
+        children = []
+        for folder in folders:
+            child_path = f"/{parent_path}/{folder['name']}"
+            children.append({
+                "id": folder["id"],
+                "name": folder["name"],
+                "path": child_path
+            })
+        
+        logger.info(f"  [CACHE] Found {len(children)} children in {parent_path}")
+        return children
+        
+    except Exception as e:
+        logger.warning(f"Failed to scan children of {parent_path}: {e}")
+        return []
+
+
+def scan_drive_folders(access_token: str, max_depth: int = 2, user_id: Optional[str] = None, use_cache: bool = True) -> Dict:
     """
     Scan user's Google Drive for existing folder structure up to specified depth.
 
@@ -184,6 +312,24 @@ def scan_drive_folders(access_token: str, max_depth: int = 2) -> Dict:
     Raises:
         DriveError: If scanning fails
     """
+    # Check cache if user_id provided and caching is enabled
+    logger.info(f"  [CACHE] scan_drive_folders called: user_id={user_id}, use_cache={use_cache}")
+    
+    if use_cache and user_id:
+        logger.info(f"  [CACHE] Attempting cache lookup for user_id: {user_id}")
+        logger.info(f"  [CACHE] Current cache keys: {list(_folder_cache.keys())}")
+        cached_data = _get_cached_folders(user_id)
+        if cached_data:
+            logger.info(f"  [CACHE] ✅ Cache HIT - returning cached data")
+            return {
+                "folders": cached_data["folders"],
+                "paths": cached_data["paths"]
+            }
+        else:
+            logger.info(f"  [CACHE] ❌ Cache MISS - will scan Drive API")
+    else:
+        logger.info(f"  [CACHE] Cache disabled or no user_id - will scan Drive API")
+    
     try:
         service = _get_drive_service(access_token)
         all_folders = []
@@ -226,16 +372,22 @@ def scan_drive_folders(access_token: str, max_depth: int = 2) -> Dict:
         # Extract just the paths for AI context
         paths = [folder["path"] for folder in all_folders]
 
-        return {
+        result = {
             "folders": all_folders,
             "paths": paths
         }
+        
+        # Store in cache if user_id provided and caching is enabled
+        if use_cache and user_id:
+            _set_cached_folders(user_id, result)
+        
+        return result
 
     except Exception as e:
         raise DriveError(f"Failed to scan Drive folders: {e}") from e
 
 
-def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> str:
+def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> Tuple[str, bool]:
     """
     Ensure a folder path exists in Google Drive, creating folders as needed.
 
@@ -244,7 +396,9 @@ def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> 
         access_token: Optional user OAuth access token
 
     Returns:
-        ID of the final folder in the path
+        Tuple of (folder_id, created_new_folder)
+        - folder_id: ID of the final folder in the path
+        - created_new_folder: True if any new folders were created
 
     Raises:
         DriveError: If folder creation fails
@@ -258,6 +412,9 @@ def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> 
         if not path_parts:
             raise DriveError("Empty folder path")
 
+        # Track if we created any new folders
+        created_new_folder = False
+
         # Traverse/create each folder in the path
         parent_id = None
         for folder_name in path_parts:
@@ -266,11 +423,13 @@ def ensure_folder_path(folder_path: str, access_token: Optional[str] = None) -> 
 
             if not folder_id:
                 # Create folder if it doesn't exist
+                logger.info(f"Creating new folder: {folder_name}")
                 folder_id = _create_folder(service, folder_name, parent_id)
+                created_new_folder = True
 
             parent_id = folder_id
 
-        return parent_id
+        return parent_id, created_new_folder
 
     except Exception as e:
         raise DriveError(f"Failed to ensure folder path: {e}") from e

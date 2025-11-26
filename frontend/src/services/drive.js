@@ -83,8 +83,8 @@ export async function generatePdfFromImages(captures, title = 'document', onProg
   if (!Array.isArray(captures) || captures.length === 0) {
     throw new Error('At least one capture is required to build a PDF');
   }
-  if (captures.length > 5) {
-    throw new Error('Multi-page builder currently supports up to 5 pages');
+  if (captures.length > 10) {
+    throw new Error('Multi-page builder currently supports up to 10 pages');
   }
 
   const pdfDoc = await PDFDocument.create();

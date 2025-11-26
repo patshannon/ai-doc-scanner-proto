@@ -30,7 +30,7 @@ export class ImageEditor {
    * @param {Object} edits - Edit operations to apply
    * @returns {Promise<string>} - URI of edited image
    */
-  async applyEdits(uri, edits) {
+  async applyEdits(uri, edits, options = { skipFilter: false }) {
     if (!uri) {
       throw new Error('Image URI is required');
     }
@@ -84,7 +84,8 @@ export class ImageEditor {
       );
 
       // In scan mode we run a local grayscale/contrast pass so the preview and exported image feel scans-like
-      if (edits.scanMode) {
+      // We skip this if skipFilter is true (for fast previews)
+      if (edits.scanMode && !options.skipFilter) {
         const scanUri = await this.applyScanFilter(result.uri);
         return scanUri;
       }
@@ -143,8 +144,9 @@ export class ImageEditor {
   }
 
   applyScanMatrix(data) {
-    const contrastFactor = 1.8;
-    const brightnessOffset = 0.06;
+    // Reduced contrast and brightness to prevent washing out text
+    const contrastFactor = 1.2;
+    const brightnessOffset = 0.0;
 
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];

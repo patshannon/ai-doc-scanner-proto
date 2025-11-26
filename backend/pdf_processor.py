@@ -7,9 +7,13 @@ to analyze PDF documents and generate titles and categories.
 
 import io
 import os
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
 import logging
+import io
+
+from pypdf import PdfReader, PdfWriter
 
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -167,8 +171,39 @@ def analyze_pdf_with_folder_context(pdf_bytes: bytes, existing_folders: List[str
         raise Exception("GEMINI_API_KEY environment variable is not set")
 
     try:
+        logger.info("  [AI] Starting analyze_pdf_with_folder_context")
+        
         # Use Gemini 2.5 Flash model with vision (supports PDF)
         model = genai.GenerativeModel('gemini-2.5-flash')
+
+        # OPTIMIZATION: Process only the first page to save tokens/time
+        # We still upload the full PDF later, but AI only sees page 1 for context
+        extraction_start = time.time()
+        processed_pdf_bytes = pdf_bytes
+        try:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            total_pages = len(reader.pages)
+            
+            if total_pages > 1:
+                logger.info(f"  [AI] PDF has {total_pages} pages. Extracting first page for AI analysis.")
+                writer = PdfWriter()
+                writer.add_page(reader.pages[0])
+                
+                output_stream = io.BytesIO()
+                writer.write(output_stream)
+                processed_pdf_bytes = output_stream.getvalue()
+                extraction_time = time.time() - extraction_start
+                logger.info(f"  [AI] Page extraction: {extraction_time:.3f}s")
+                logger.info(f"  [AI] Reduced PDF size from {len(pdf_bytes):,} to {len(processed_pdf_bytes):,} bytes ({len(processed_pdf_bytes)/len(pdf_bytes)*100:.1f}%)")
+            else:
+                extraction_time = time.time() - extraction_start
+                logger.info(f"  [AI] PDF is single page ({extraction_time:.3f}s check)")
+                
+        except Exception as e:
+            extraction_time = time.time() - extraction_start
+            logger.warning(f"  [AI] Failed to extract first page ({extraction_time:.3f}s), falling back to full PDF: {e}")
+            # Fallback to full PDF if pypdf fails
+            processed_pdf_bytes = pdf_bytes
 
         # Build folder list for prompt
         folder_list = "\n".join(existing_folders) if existing_folders else "No existing folders found."
@@ -208,12 +243,20 @@ IMPORTANT:
 - If suggesting a new path, follow the user's organizational patterns seen in existing folders
 - The category should align with the folder structure you see"""
 
-        # Upload PDF to Gemini
-        pdf_file = genai.upload_file(io.BytesIO(pdf_bytes), mime_type='application/pdf')
+        # Upload PDF to Gemini (using the potentially reduced version)
+        upload_start = time.time()
+        pdf_file = genai.upload_file(io.BytesIO(processed_pdf_bytes), mime_type='application/pdf')
+        upload_time = time.time() - upload_start
+        logger.info(f"  [AI] Gemini file upload: {upload_time:.3f}s")
 
+        # Generate content with Gemini
+        generate_start = time.time()
         response = model.generate_content([prompt, pdf_file])
+        generate_time = time.time() - generate_start
+        logger.info(f"  [AI] Gemini generate_content: {generate_time:.3f}s")
 
         # Extract token usage
+        parse_start = time.time()
         input_tokens = 0
         output_tokens = 0
 
@@ -221,15 +264,17 @@ IMPORTANT:
             um = response.usage_metadata
             input_tokens = um.prompt_token_count
             output_tokens = um.candidates_token_count
-            logger.info(f"Token usage - Input: {input_tokens}, Output: {output_tokens}")
+            logger.info(f"  [AI] Token usage - Input: {input_tokens:,}, Output: {output_tokens:,}")
 
         # Calculate cost (Gemini 2.5 Flash pricing)
         # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
         estimated_cost = (input_tokens * 0.075 / 1_000_000) + (output_tokens * 0.30 / 1_000_000)
+        logger.info(f"  [AI] Estimated cost: ${estimated_cost:.6f}")
 
         # Parse the response
         response_text = response.text.strip()
-        logger.info(f"Gemini Vision response with folder context: {response_text}")
+        logger.info(f"  [AI] Response parsing...")
+        logger.debug(f"  [AI] Gemini response: {response_text}")
 
         title = None
         category = None
@@ -282,7 +327,9 @@ IMPORTANT:
         if len(title) > 80:
             title = title[:77] + "..."
 
-        logger.info(f"Generated: title='{title}', category='{category}', year={year}, path='{suggested_path}', existing={is_existing_path}")
+        parse_time = time.time() - parse_start
+        logger.info(f"  [AI] Response parsing complete: {parse_time:.3f}s")
+        logger.info(f"  [AI] Result: title='{title}', category='{category}', year={year}, path='{suggested_path}'")
 
         return {
             'title': title,
