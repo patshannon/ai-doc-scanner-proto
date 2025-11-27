@@ -22,7 +22,7 @@ const ASPECT_RATIOS = {
   legal: { width: 8.5, height: 14 },
   square: { width: 1, height: 1 }
 };
-const ASPECT_RATIO_KEYS = ['a4', 'letter', 'legal', 'square', 'free'];
+const ASPECT_RATIO_KEYS = ['letter', 'a4', 'legal', 'square', 'free'];
 
 export default function ImageEditor({
   visible,
@@ -39,7 +39,7 @@ export default function ImageEditor({
   });
   
   const [processing, setProcessing] = useState(false);
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState('a4');
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState('letter');
   const [currentImageUri, setCurrentImageUri] = useState(imageUri);
   const [previewUri, setPreviewUri] = useState(imageUri);
   
@@ -47,12 +47,84 @@ export default function ImageEditor({
   const imageDimensionsRef = useRef({ width: 0, height: 0 });
   const lastImageUri = useRef(null);
 
+  // Helper to calculate crop based on dimensions and current edits
+  const calculateAutoCrop = (dims, currentEdits) => {
+    if (currentEdits.autoDetectCrop === false) return null;
+
+    let effectiveDims = dims;
+    // Account for initial rotation if any
+    if (currentEdits.rotation % 180 !== 0) {
+      effectiveDims = { width: dims.height, height: dims.width };
+    }
+
+    if (currentEdits.guideFrame) {
+      // Precise crop based on camera guide frame
+      const { x, y, width, height, screenWidth, screenHeight } = currentEdits.guideFrame;
+      const { width: imgW, height: imgH } = effectiveDims;
+      
+      // Determine how image is fitted to screen (Aspect Fill / Cover)
+      const imageAspect = imgW / imgH;
+      const screenAspect = screenWidth / screenHeight;
+      
+      let scale, offsetX, offsetY;
+      
+      if (imageAspect > screenAspect) {
+        // Image is wider than screen
+        scale = imgH / screenHeight;
+        const visibleImgWidth = screenWidth * scale;
+        offsetX = (imgW - visibleImgWidth) / 2;
+        offsetY = 0;
+      } else {
+        // Image is taller than screen
+        scale = imgW / screenWidth;
+        const visibleImgHeight = screenHeight * scale;
+        offsetX = 0;
+        offsetY = (imgH - visibleImgHeight) / 2;
+      }
+      
+      // Map guide frame to image coordinates
+      let cropWidth = width * scale;
+      let cropHeight = height * scale;
+      let cropX = offsetX + (x * scale);
+      let cropY = offsetY + (y * scale);
+      
+      // Add a 10% safety buffer
+      const bufferScale = 1.1;
+      const newWidth = cropWidth * bufferScale;
+      const newHeight = cropHeight * bufferScale;
+      
+      // Adjust X/Y to keep centered
+      cropX -= (newWidth - cropWidth) / 2;
+      cropY -= (newHeight - cropHeight) / 2;
+      
+      cropWidth = newWidth;
+      cropHeight = newHeight;
+      
+      // Clamp to image bounds
+      if (cropX < 0) cropX = 0;
+      if (cropY < 0) cropY = 0;
+      if (cropX + cropWidth > imgW) cropWidth = imgW - cropX;
+      if (cropY + cropHeight > imgH) cropHeight = imgH - cropY;
+
+      return {
+        originX: cropX,
+        originY: cropY,
+        width: cropWidth,
+        height: cropHeight
+      };
+    } else {
+      // Fallback to simple center crop if no guide frame
+      return imageEditor.calculateCropDimensions(effectiveDims, 'letter');
+    }
+  };
+
   useEffect(() => {
     if (visible && imageUri && lastImageUri.current !== imageUri) {
       lastImageUri.current = imageUri;
       setProcessing(true);
       
       const init = async () => {
+        console.log('[ImageEditor] Initializing with URI:', imageUri);
         const startEdits = {
           rotation: 0,
           crop: null,
@@ -63,43 +135,29 @@ export default function ImageEditor({
         // If we already have a crop (editing existing), just proceed
         if (initialEdits.crop) {
           setEditing(startEdits);
-          setSelectedAspectRatio('a4');
+          setSelectedAspectRatio('letter');
           setCurrentImageUri(imageUri);
-          // processing will be turned off by applyEdits which is triggered by these state changes
           return;
         }
 
-          // If no crop (new image), calculate it FIRST before setting state to avoid double-process
+        // If no crop (new image), calculate it FIRST
         try {
           const dims = await imageEditor.getImageDimensions(imageUri);
+          console.log('[ImageEditor] Got dimensions:', dims);
           imageDimensionsRef.current = dims;
           
-          let effectiveDims = dims;
-          // Account for initial rotation if any
-          if (startEdits.rotation % 180 !== 0) {
-            effectiveDims = { width: dims.height, height: dims.width };
-          }
-
-          // Only auto-crop if allowed (default to true if undefined for backward compatibility)
-          if (startEdits.autoDetectCrop !== false) {
-            const cropDimensions = imageEditor.calculateCropDimensions(effectiveDims, 'a4');
-            if (cropDimensions) {
-              startEdits.crop = cropDimensions;
-            }
-          } else {
-             // If auto-crop is disabled, ensure we start with 'free' or 'original' aspect ratio
-             // We might want to set selectedAspectRatio to 'free' in state later
-             // But for now, just don't set a crop.
+          const autoCrop = calculateAutoCrop(dims, startEdits);
+          if (autoCrop) {
+            console.log('[ImageEditor] Calculated auto-crop:', autoCrop);
+            startEdits.crop = autoCrop;
           }
         } catch (err) {
-          console.error('Failed to load image dimensions:', err);
+          console.error('[ImageEditor] Failed to load image dimensions:', err);
         }
 
         // Apply initial state with calculated crop
-        // Apply initial state with calculated crop
         setEditing(startEdits);
-        // If we have a crop, assume A4 (or whatever logic used). If not, 'free'.
-        setSelectedAspectRatio(startEdits.crop ? 'a4' : 'free');
+        setSelectedAspectRatio(startEdits.crop ? 'letter' : 'free');
         setCurrentImageUri(imageUri);
       };
 
@@ -108,10 +166,38 @@ export default function ImageEditor({
   }, [visible, imageUri]);
 
   const handleImageLoad = useCallback((event) => {
-    // Only update if we don't have dimensions yet (fallback)
-    if (imageDimensionsRef.current.width === 0) {
-      const { width, height } = event.nativeEvent.source;
+    // Web vs Native have different event structures
+    let width, height;
+    
+    if (event.nativeEvent?.source) {
+      // React Native
+      ({ width, height } = event.nativeEvent.source);
+    } else if (event.target) {
+      // Web
+      width = event.target.naturalWidth || event.target.width;
+      height = event.target.naturalHeight || event.target.height;
+    }
+    
+    if (width && height) {
+      console.log('[ImageEditor] Image loaded via onLoad:', width, height);
       imageDimensionsRef.current = { width, height };
+
+      // Fallback: If we don't have a crop yet, and auto-crop is enabled, try to calculate it now
+      // This handles cases where getImageDimensions failed or was too slow
+      setEditing(prev => {
+        if (prev.crop || prev.autoDetectCrop === false) return prev;
+        
+        console.log('[ImageEditor] Attempting fallback auto-crop from onLoad');
+        const autoCrop = calculateAutoCrop({ width, height }, prev);
+        
+        if (autoCrop) {
+          console.log('[ImageEditor] Fallback auto-crop successful');
+          // Also update selectedAspectRatio if we found a crop
+          setSelectedAspectRatio('letter');
+          return { ...prev, crop: autoCrop };
+        }
+        return prev;
+      });
     }
   }, []);
 
@@ -120,9 +206,8 @@ export default function ImageEditor({
     
     setProcessing(true);
     try {
-      // Use the imageEditor service to apply edits
-      // Skip the slow filter for previewing
-      const finalUri = await imageEditor.applyEdits(currentImageUri, editing, { skipFilter: true });
+      // Apply edits with the scan filter so users can see the effect in real-time
+      const finalUri = await imageEditor.applyEdits(currentImageUri, editing, { skipFilter: false });
       setPreviewUri(finalUri);
       return finalUri;
     } catch (error) {
@@ -164,11 +249,11 @@ export default function ImageEditor({
       scanMode: true
     });
     setCurrentImageUri(imageUri);
-    setSelectedAspectRatio('a4');
+    setSelectedAspectRatio('letter');
     
     // Re-apply default crop on reset
     if (imageDimensionsRef.current.width > 0) {
-      const cropDimensions = imageEditor.calculateCropDimensions(imageDimensionsRef.current, 'a4');
+      const cropDimensions = imageEditor.calculateCropDimensions(imageDimensionsRef.current, 'letter');
       if (cropDimensions) {
         setEditing(prev => ({
           ...prev,
@@ -291,7 +376,7 @@ export default function ImageEditor({
                   onPress={() => setAspectRatio(ratio)}
                 >
                   <Text style={styles.buttonText}>
-                    {ratio === 'free' ? 'Free' : ratio.toUpperCase()}
+                    {ratio === 'free' ? 'NONE' : ratio.toUpperCase()}
                   </Text>
                 </TouchableOpacity>
               ))}

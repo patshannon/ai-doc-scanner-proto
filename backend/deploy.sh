@@ -56,11 +56,22 @@ docker buildx build \
   "${CONTEXT_DIR}"
 
 echo "Deploying to Cloud Run in region: ${REGION}" >&2
+
+# Load GEMINI_API_KEY from .env if it exists
+if [ -f "${CONTEXT_DIR}/.env" ]; then
+  export $(grep -v '^#' "${CONTEXT_DIR}/.env" | grep GEMINI_API_KEY | xargs)
+fi
+
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  echo "Warning: GEMINI_API_KEY not set. Backend may not function correctly." >&2
+fi
+
 gcloud run deploy doc-ai-backend \
   --image "${IMAGE}" \
   --region "${REGION}" \
   --allow-unauthenticated \
   --set-env-vars FIREBASE_PROJECT_ID=doc-ai-proto \
-  --set-env-vars FIREBASE_SKIP_AUTH=true
+  --set-env-vars FIREBASE_SKIP_AUTH=true \
+  --set-env-vars GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 
 echo "Done. If successful, set EXPO_PUBLIC_API_BASE_URL to the service URL." >&2

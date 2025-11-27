@@ -16,7 +16,7 @@ export default function HomeScreen({ onStartCamera, onTestGoogle, googleAuth }) 
       }
 
       try {
-        const res = await fetch(`${API_BASE}/healthz`, { method: 'GET' });
+        const res = await fetch(`${API_BASE}/health`, { method: 'GET' });
         setBackendStatus(res.ok ? 'connected' : 'error');
       } catch (e) {
         console.warn('[Network] Backend unreachable', e.message);

@@ -1,6 +1,7 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { PDFDocument, rgb } from 'pdf-lib';
+import { Platform } from 'react-native';
 
 const PDF_MAX_BYTES = 50 * 1024 * 1024; // 50MB limit per backend contract
 const PDF_MARGIN = 18;
@@ -69,6 +70,11 @@ function sanitizeFileName(value) {
 }
 
 async function writePdfToCache(pdfDoc, title) {
+  if (Platform.OS === 'web') {
+    // On web, we return a Data URI directly since we can't write to the file system
+    return await pdfDoc.saveAsBase64({ dataUri: true });
+  }
+
   const base64 = await pdfDoc.saveAsBase64({ dataUri: false });
   const safeTitle = sanitizeFileName(title);
   const targetDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
@@ -152,6 +158,15 @@ export async function generatePdfFromImages(captures, title = 'document', onProg
 
 export async function convertPdfToDataUri(pdfUri) {
   try {
+    if (Platform.OS === 'web') {
+      // On web, if it's already a data URI, return it
+      if (pdfUri.startsWith('data:')) {
+        return pdfUri;
+      }
+      // If it's a blob URL, we might need to fetch it (not implemented here as we return Data URI above)
+      return pdfUri;
+    }
+
     const base64 = await FileSystem.readAsStringAsync(pdfUri, { encoding: 'base64' });
     const byteSize = estimateByteSize(base64);
     if (byteSize > PDF_MAX_BYTES) {

@@ -26,8 +26,11 @@ export default function SettingsScreen({ onBack, onUpdateAuth, initialAuth }) {
 
   const readyForAuth = Boolean(ids.expoClientId);
 
-  // Use the iOS reversed client ID as the redirect URI
-  const redirectUri = 'com.googleusercontent.apps.935524565569-6majtpkip3kn9qjk740lnj1sjai9lcd3:/';
+  // Use the iOS reversed client ID as the redirect URI for native, let SDK handle web
+  const redirectUri = Platform.select({
+    web: undefined,
+    default: 'com.googleusercontent.apps.935524565569-6majtpkip3kn9qjk740lnj1sjai9lcd3:/'
+  });
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     expoClientId: ids.expoClientId,

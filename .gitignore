@@ -3,7 +3,11 @@ backend/doc-ai-proto-firebase-adminsdk.json
 *firebase-adminsdk*.json
 .env
 *.env
+*.env.*
 !.env.example
+
+# Firebase
+.firebase/
 
 # Python
 __pycache__/

@@ -33,11 +33,11 @@ The image editing system provides users with tools to enhance and modify capture
 
 ### 2. Cropping
 - **Aspect Ratio Presets**:
-  - Free-form cropping
+  - Letter (8.5:11) - Default
   - A4 (210:297)
-  - Letter (8.5:11)
   - Legal (8.5:14)
   - Square (1:1)
+  - None (Free-form)
 - Automatic centering of crop area
 - Maintains resolution
 

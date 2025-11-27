@@ -11,7 +11,8 @@ import {
   Switch,
   Platform
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
+import { PlatformCamera } from '../components/PlatformCamera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import ImageEditor from '../components/ImageEditor';
@@ -20,9 +21,11 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 function BrightGuideOverlay({ width, height }) {
   // Use full screen width for the guide frame
-  // A4 aspect ratio is 1 : 1.414
-  const guideWidth = width;
-  const guideHeight = guideWidth * 1.414;
+  // Letter aspect ratio is 1 : 1.294
+  // Add some horizontal padding (24px on each side) so it doesn't touch edges
+  const horizontalPadding = 48;
+  const guideWidth = width - horizontalPadding;
+  const guideHeight = guideWidth * 1.294;
   
   // Ensure it fits vertically (accounting for top and bottom bars)
   // Leave some space for top bar (~100px) and bottom bar (~90px)
@@ -32,7 +35,7 @@ function BrightGuideOverlay({ width, height }) {
   
   if (guideHeight > maxHeight) {
     finalHeight = maxHeight;
-    finalWidth = finalHeight / 1.414;
+    finalWidth = finalHeight / 1.294;
   }
 
   const cornerSize = 30; // Length of corner bracket arms
@@ -160,6 +163,7 @@ export default function CameraScreen({
   const [pendingCapture, setPendingCapture] = useState(null);
   const [autoCrop, setAutoCrop] = useState(true);
   const [flashMode, setFlashMode] = useState('on'); // 'off', 'on', 'auto', 'torch'
+  const [viewDimensions, setViewDimensions] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT });
 
   const driveStatusText = useMemo(() => {
     if (!googleAuth) return 'Not linked';
@@ -197,12 +201,39 @@ export default function CameraScreen({
       const exifDate = extractExifDate(photo?.exif) || new Date().toISOString();
       const thumbBase64 = await buildThumbnail(photo?.uri);
       
+      // Calculate crop scale based on guide overlay dimensions
+      // This ensures the auto-crop matches the visual guide the user aligned to
+      const { width: viewWidth, height: viewHeight } = viewDimensions;
+      const horizontalPadding = 48;
+      const guideWidth = viewWidth - horizontalPadding;
+      const guideHeight = guideWidth * 1.294;
+      const maxHeight = viewHeight - 190;
+      
+      let finalWidth = guideWidth;
+      let finalHeight = guideHeight;
+      if (guideHeight > maxHeight) {
+        finalHeight = maxHeight;
+        finalWidth = finalHeight / 1.294;
+      }
+      
+      // Calculate centered position
+      const guideX = (viewWidth - finalWidth) / 2;
+      const guideY = (viewHeight - finalHeight) / 2;
+
       // Store pending capture for editing
       const captureData = {
         uri: photo?.uri,
         exifDate,
         thumbBase64,
-        autoCropEnabled: autoCrop // Pass this to ImageEditor
+        autoCropEnabled: autoCrop,
+        guideFrame: {
+          x: guideX,
+          y: guideY,
+          width: finalWidth,
+          height: finalHeight,
+          screenWidth: viewWidth,
+          screenHeight: viewHeight
+        }
       };
       
       setPendingCapture(captureData);
@@ -291,8 +322,14 @@ export default function CameraScreen({
   }
 
   return (
-    <View style={styles.container}>
-      <CameraView
+    <View 
+      style={styles.container} 
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        setViewDimensions({ width, height });
+      }}
+    >
+      <PlatformCamera
         ref={cameraRef}
         style={styles.camera}
         facing="back"
@@ -302,7 +339,7 @@ export default function CameraScreen({
         enableTorch={flashMode === 'torch'}
       />
       
-      <BrightGuideOverlay width={SCREEN_WIDTH} height={SCREEN_HEIGHT} />
+      <BrightGuideOverlay width={viewDimensions.width} height={viewDimensions.height} />
 
       {/* Top Controls */}
       <View style={styles.topBar}>
@@ -390,7 +427,8 @@ export default function CameraScreen({
             // If autoCrop is enabled, we don't pass a crop here, 
             // but we rely on ImageEditor to calculate it if we pass a flag.
             // Or we can pass a flag 'autoDetectCrop: true'
-            autoDetectCrop: autoCrop
+            autoDetectCrop: autoCrop,
+            guideFrame: pendingCapture?.guideFrame
           }}
         />
       )}

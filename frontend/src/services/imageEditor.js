@@ -1,7 +1,7 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
-import { Image } from 'react-native';
+import { Image, Platform } from 'react-native';
 import jpeg from 'jpeg-js';
 
 if (typeof global.Buffer === 'undefined') {
@@ -17,8 +17,8 @@ export class ImageEditor {
   constructor() {
     this.aspectRatios = {
       free: null,
-      a4: { width: 210, height: 297 },
       letter: { width: 8.5, height: 11 },
+      a4: { width: 210, height: 297 },
       legal: { width: 8.5, height: 14 },
       square: { width: 1, height: 1 }
     };
@@ -34,6 +34,13 @@ export class ImageEditor {
     if (!uri) {
       throw new Error('Image URI is required');
     }
+
+    console.log('[ImageEditor] Applying edits:', {
+      scanMode: edits.scanMode,
+      skipFilter: options.skipFilter,
+      rotation: edits.rotation,
+      hasCrop: !!edits.crop
+    });
 
     try {
       const actions = [];
@@ -83,23 +90,130 @@ export class ImageEditor {
         compressSettings
       );
 
+      console.log('[ImageEditor] Transformations applied, result URI:', result.uri);
+
       // In scan mode we run a local grayscale/contrast pass so the preview and exported image feel scans-like
       // We skip this if skipFilter is true (for fast previews)
       if (edits.scanMode && !options.skipFilter) {
+        console.log('[ImageEditor] Scan mode enabled, applying scan filter');
         const scanUri = await this.applyScanFilter(result.uri);
+        console.log('[ImageEditor] Scan filter complete, returning:', scanUri);
         return scanUri;
+      }
+
+      if (edits.scanMode && options.skipFilter) {
+        console.log('[ImageEditor] Scan mode enabled but skipFilter is true, skipping scan filter');
+      } else if (!edits.scanMode) {
+        console.log('[ImageEditor] Scan mode disabled, skipping scan filter');
       }
 
       return result.uri;
     } catch (error) {
-      console.error('Error applying edits:', error);
+      console.error('[ImageEditor] Error applying edits:', error);
       throw new Error(`Failed to apply edits: ${error.message}`);
     }
   }
 
   async applyScanFilter(uri) {
     if (!uri) {
+      console.log('[ScanFilter] No URI provided, skipping filter');
       return uri;
+    }
+
+    console.log('[ScanFilter] Platform:', Platform.OS);
+    console.log('[ScanFilter] Input URI:', uri);
+
+    // Use different implementation for web vs native
+    if (Platform.OS === 'web') {
+      console.log('[ScanFilter] Using web implementation');
+      return this.applyScanFilterWeb(uri);
+    } else {
+      console.log('[ScanFilter] Using native implementation');
+      return this.applyScanFilterNative(uri);
+    }
+  }
+
+  /**
+   * Web-compatible scan filter using Canvas API
+   */
+  async applyScanFilterWeb(uri) {
+    console.log('[ScanFilterWeb] Starting web scan filter');
+    try {
+      return new Promise((resolve, reject) => {
+        const img = new window.Image();
+        img.crossOrigin = 'anonymous';
+        
+        console.log('[ScanFilterWeb] Creating image element, loading:', uri);
+        
+        img.onload = () => {
+          console.log('[ScanFilterWeb] Image loaded successfully');
+          console.log('[ScanFilterWeb] Image dimensions:', img.width, 'x', img.height);
+          
+          try {
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            
+            console.log('[ScanFilterWeb] Canvas created:', canvas.width, 'x', canvas.height);
+            
+            // Draw image
+            ctx.drawImage(img, 0, 0);
+            console.log('[ScanFilterWeb] Image drawn to canvas');
+            
+            // Get image data
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            console.log('[ScanFilterWeb] Image data extracted, processing', data.length, 'bytes');
+            
+            // Apply scan matrix (grayscale + contrast)
+            this.applyScanMatrix(data);
+            console.log('[ScanFilterWeb] Scan matrix applied');
+            
+            // Put modified data back
+            ctx.putImageData(imageData, 0, 0);
+            console.log('[ScanFilterWeb] Modified data put back to canvas');
+            
+            // Convert to blob
+            canvas.toBlob((blob) => {
+              if (blob) {
+                const url = URL.createObjectURL(blob);
+                console.log('[ScanFilterWeb] Blob created successfully, size:', blob.size, 'bytes');
+                console.log('[ScanFilterWeb] Output URL:', url);
+                resolve(url);
+              } else {
+                console.warn('[ScanFilterWeb] Canvas toBlob failed, returning original uri');
+                resolve(uri);
+              }
+            }, 'image/jpeg', 0.95);
+          } catch (error) {
+            console.error('[ScanFilterWeb] Canvas processing failed:', error);
+            resolve(uri);
+          }
+        };
+        
+        img.onerror = (error) => {
+          console.error('[ScanFilterWeb] Image load failed:', error);
+          resolve(uri);
+        };
+        
+        img.src = uri;
+      });
+    } catch (error) {
+      console.error('[ScanFilterWeb] Outer error:', error);
+      return uri;
+    }
+  }
+
+  /**
+   * Native scan filter using jpeg-js
+   */
+  async applyScanFilterNative(uri) {
+    if (Platform.OS === 'web') {
+      console.warn('[ScanFilter] Native implementation called on web, falling back to web implementation');
+      return this.applyScanFilterWeb(uri);
     }
 
     try {
@@ -138,7 +252,7 @@ export class ImageEditor {
 
       return scanUri;
     } catch (error) {
-      console.warn('Unable to apply scan filter, returning original uri', error);
+      console.warn('Unable to apply scan filter (native), returning original uri', error);
       return uri;
     }
   }

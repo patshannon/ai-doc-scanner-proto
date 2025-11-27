@@ -75,7 +75,7 @@ def require_user(
         ) from exc
 
 
-@app.get("/healthz")
+@app.get("/health")
 def healthcheck() -> Dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
